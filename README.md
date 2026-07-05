@@ -72,70 +72,70 @@ graph TD
 
 ---
 
-## 🔰 Hướng dẫn thiết lập nhanh (Quick Setup Guide)
+## 🔰 Quick Setup Guide
 
-Hướng dẫn từng bước giúp bạn nhanh chóng cài đặt, cấu hình API Keys và tích hợp **fourTindex** vào **Cursor** hoặc **Claude Desktop**.
+A step-by-step guide to quickly install, configure API keys, and integrate **fourTindex** with **Cursor** or **Claude Desktop**.
 
-### 1. Cài đặt các công cụ nền tảng
-* **Bước 1: Tải & Cài đặt Ollama** (Trình chạy mô hình AI offline)
-  1. Truy cập trang chủ [Ollama.com](https://ollama.com) và tải ứng dụng về máy.
-  2. Nhấp đúp vào file vừa tải để cài đặt (chỉ cần bấm **Install** rồi đợi chạy xong).
-  3. Để Ollama tự chạy ngầm dưới khay hệ thống (nút kế bên đồng hồ).
-* **Bước 2: Cài đặt Python**
-  1. Tải Python bản mới nhất tại [Python.org](https://www.python.org/downloads/) hoặc cài ứng dụng **Python** trên **Microsoft Store** (Windows).
-  2. **⚠️ LƯU Ý QUAN TRỌNG:** Trong màn hình cài đặt đầu tiên của Python, bạn **BẮT BUỘC** phải tích chọn vào ô **"Add Python to PATH"** ở phía dưới cùng trước khi bấm nút cài đặt.
+### 1. Install Required Core Tools
+* **Step 1: Install Ollama** (Local offline AI runner)
+  1. Visit the official [Ollama.com](https://ollama.com) website and download the application.
+  2. Double-click the downloaded installer to install it (simply click **Install** and wait for completion).
+  3. Ensure Ollama is running in the background (visible in your system tray).
+* **Step 2: Install Python**
+  1. Download the latest Python release from [Python.org](https://www.python.org/downloads/) or install **Python** directly from the **Microsoft Store** (Windows).
+  2. **⚠️ IMPORTANT:** During the initial Python setup window, you **MUST** check the box for **"Add Python to PATH"** at the bottom before clicking the install button.
 
-### 2. Tải và Cài đặt fourTindex
-1. Tải thư mục mã nguồn **fourTindex** này về máy tính của bạn (tải file `.zip` rồi giải nén ra).
-2. Vào thư mục chứa mã nguồn vừa giải nén.
-3. **Mở cửa sổ dòng lệnh tại thư mục này:**
-   * **Cách nhanh nhất:** Nhấp chuột vào thanh địa chỉ ở phía trên cùng của cửa sổ thư mục (nơi hiển thị đường dẫn như `D:\project\FourTIndex`), gõ chữ `cmd` rồi bấm phím **Enter**. Một cửa sổ Command Prompt màu đen sẽ xuất hiện.
-4. **Cài đặt thư viện:**
-   * Dán lệnh sau vào cửa sổ đen đó và bấm **Enter**:
+### 2. Download and Install fourTindex
+1. Download this **fourTindex** repository to your machine (download the `.zip` file and extract it).
+2. Navigate to the extracted repository folder.
+3. **Open a terminal window at this folder:**
+   * **Windows Quick Method:** Click the address bar at the top of the file explorer (which displays the folder path like `D:\project\FourTIndex`), type `cmd` and press **Enter**. A command prompt window will open.
+4. **Install the package:**
+   * Paste the following command and press **Enter**:
      ```bash
      pip install -e .
      ```
 
-### 3. Cấu hình API Key (File .env)
-Nếu bạn muốn sử dụng các mô hình nhúng đám mây (Cloud Embeddings) để tăng tốc độ và chất lượng (ví dụ: Voyage AI, Jina, Gemini...):
-1. Tìm file `.env.example` trong thư mục dự án.
-2. Tạo một bản sao của file này và đổi tên thành `.env` (hoặc đổi tên trực tiếp file `.env.example` thành `.env`).
-3. Mở file `.env` bằng Text Editor bất kỳ (như Notepad, VS Code) và điền API Key của nhà cung cấp bạn muốn dùng:
+### 3. Configure API Keys (.env File)
+If you want to use cloud embedding models for higher speed or quality (e.g., Voyage AI, Jina, Gemini...):
+1. Find the `.env.example` file in the root folder of the project.
+2. Create a copy of this file and rename it to `.env` (or directly rename `.env.example` to `.env`).
+3. Open the `.env` file in any text editor (like Notepad, VS Code) and enter the API keys for the providers you want to use:
    ```dotenv
    VOYAGE_API_KEY=your_api_key_here
    JINA_API_KEY=your_api_key_here
    GEMINI_API_KEY=your_api_key_here
    ```
-4. Tại dòng `FOURTINDEX_EMBEDDING_PROVIDER_CHAIN`, liệt kê các provider bạn muốn ưu tiên sử dụng. fourTindex sẽ tự động chạy theo thứ tự từ trái qua phải, nếu bên nào lỗi hoặc hết quota sẽ tự động chuyển sang bên kế tiếp:
+4. On the `FOURTINDEX_EMBEDDING_PROVIDER_CHAIN` line, list the providers you want to prioritize. fourTindex will check them from left to right; if one fails or runs out of quota, it will automatically fallback to the next:
    ```dotenv
-   # Ví dụ: ưu tiên Voyage, sau đó đến Jina, nếu lỗi hết thì dùng Ollama chạy offline cục bộ
+   # Example: Prefer Voyage, fallback to Jina, and then fallback to offline Ollama
    FOURTINDEX_EMBEDDING_PROVIDER_CHAIN=voyage,jina,ollama
    ```
-   *Mặc định nếu bạn không chỉnh sửa gì hoặc không cấu hình API Key, fourTindex sẽ chỉ chạy offline thông qua Ollama.*
+   *By default, if you don't configure any keys or edit this file, fourTindex will run offline using Ollama.*
 
-### 4. Thiết lập mô hình offline & Tải model
-Quay lại cửa sổ dòng lệnh ở Bước 2, gõ lệnh sau để tự động tải các model AI tìm kiếm về máy:
+### 4. Pull Offline Models
+Go back to the command prompt from Step 2, and run the following command to automatically download the default semantic search models:
 ```bash
 fourtindex setup-ollama
 ```
-*(Quá trình tải có thể mất từ 2-5 phút tùy tốc độ mạng của bạn).*
+*(This may take 2-5 minutes depending on your internet connection).*
 
-### 5. Tích hợp vào Cursor
-1. Mở phần mềm **Cursor** lên.
-2. Nhấn phím `Ctrl + ,` (hoặc `Cmd + ,` trên Mac) để mở phần cài đặt, hoặc nhấp vào **icon bánh răng** ở góc trên bên phải màn hình.
-3. Chọn mục **Features** (Tính năng) -> Kéo xuống dưới cùng tìm phần **MCP**.
-4. Bấm vào nút **+ Add New MCP Tool**.
-5. Điền thông tin chính xác như sau:
+### 5. Integrate with Cursor
+1. Open **Cursor**.
+2. Press `Ctrl + ,` (or `Cmd + ,` on Mac) to open settings, or click the **gear icon** in the top right corner.
+3. Select **Features** -> scroll down to the bottom and find the **MCP** section.
+4. Click the **+ Add New MCP Tool** button.
+5. Enter the details precisely:
    * **Name:** `fourtindex`
-   * **Type:** Chọn `stdio`
-   * **Command:** Nhập:
+   * **Type:** Select `stdio`
+   * **Command:** Enter:
      ```bash
      fourtindex mcp
      ```
-     *(Nếu không được, điền lệnh dài hơn: `python -m fourtindex mcp`)*
-6. Nhấn **Save**. Nếu thấy hiển thị dấu chấm **màu xanh lá cây** (Active) bên cạnh tên `fourtindex` là bạn đã cài đặt thành công!
+     *(If it doesn't connect, try: `python -m fourtindex mcp`)*
+6. Click **Save**. If you see a **green dot** (Active) next to `fourtindex`, the integration is successful!
 
-Bây giờ bạn có thể chat với AI trong Cursor và yêu cầu: *"Hãy tìm kiếm ngữ nghĩa trong codebase..."* hoặc *"Đọc cấu trúc file..."*, AI sẽ tự động kích hoạt bốnTindex để thực hiện.
+You can now chat with the Cursor AI and ask: *"Please search the codebase semantically..."* or *"Get file outline..."*, and it will invoke fourTindex automatically.
 
 ---
 
