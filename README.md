@@ -1,1 +1,232 @@
-# FourTIndex
+<p align="center">
+  <img src="assets/banner.png" alt="fourTindex Banner" width="100%" style="border-radius: 8px;" />
+</p>
+
+<h1 align="center">fourTindex 🚀</h1>
+
+<p align="center">
+  <strong>High-fidelity local codebase semantic indexer and Model Context Protocol (MCP) server for local-first AI development.</strong>
+</p>
+
+<p align="center">
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.9+-emerald.svg" alt="Python 3.9+"></a>
+  <a href="https://ollama.com/"><img src="https://img.shields.io/badge/Ollama-Local%20LLM-pink.svg" alt="Ollama"></a>
+  <a href="https://www.trychroma.com/"><img src="https://img.shields.io/badge/ChromaDB-Vector%20Store-orange.svg" alt="ChromaDB"></a>
+  <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/MCP-Protocol-blueviolet.svg" alt="MCP"></a>
+</p>
+
+---
+
+## 📌 Table of Contents
+
+- [💡 Overview](#-overview)
+- [📐 Architecture & Data Flow](#-architecture--data-flow)
+- [✨ Key Features](#-key-features)
+- [⚡ Quick Start](#-quick-start)
+- [💾 VRAM & RAM Memory Optimization](#-vram--ram-memory-optimization)
+- [🛠️ CLI Command cheatsheet](#%EF%B8%8F-cli-command-cheatsheet)
+- [🧩 MCP Client Integration](#-mcp-client-integration)
+- [📖 MCP Tool Specifications](#-mcp-tool-specifications)
+- [🤖 Agent Customization & System Rules](#-agent-customization--system-rules)
+
+---
+
+## 💡 Overview
+
+**fourTindex** is designed for software developers who pair-program with AI agents (like Cursor, Claude Desktop, Copilot, or Antigravity) and want to keep their codebase index 100% local, secure, and lightning-fast. 
+
+By running a local vector database (ChromaDB) and local LLMs (Ollama), `fourTindex` parses your codebase (using AST for Python structures and semantic markdown chunking for skills), indexes it, and exposes it via Model Context Protocol. AI agents can semantically search your codebase, query high-level outlines, and read selected files incrementally—saving token quota and preventing huge context windows from slowing down reasoning.
+
+---
+
+## 📐 Architecture & Data Flow
+
+```mermaid
+graph TD
+    A[AI Coding Agent <br/> Cursor / Claude / Antigravity] -- JSON-RPC over stdio --> B(fourTindex MCP Server)
+    B --> C[Local Python CLI <br/> main.py]
+    C --> D[(ChromaDB Vector Store <br/> SQLite Hash Storage)]
+    C --> E[Local Ollama Service]
+    E --> F[qwen3-embedding:4b <br/> nomic-embed-text]
+    E --> G[qwen2.5-coder:7b]
+    
+    style A fill:#4F46E5,stroke:#312E81,stroke-width:2px,color:#fff
+    style B fill:#0EA5E9,stroke:#0369A1,stroke-width:2px,color:#fff
+    style C fill:#10B981,stroke:#047857,stroke-width:2px,color:#fff
+    style D fill:#F59E0B,stroke:#B45309,stroke-width:2px,color:#fff
+    style E fill:#EC4899,stroke:#BE185D,stroke-width:2px,color:#fff
+```
+
+---
+
+## ✨ Key Features
+
+* **⚡ 16x Batch Embedding Optimization:** Blazing fast indexing using batch API execution.
+* **🔄 Incremental Sync:** Only re-indexes modified files based on SHA256 hashes. Index updates take less than 1 second.
+* **🌳 AST-based Python Parsing:** Extracts class definitions, docstrings, method signatures, and decorators as structured logical blocks.
+* **📝 Heading-Aware Markdown Splitting:** Dedicated parser for customization `SKILL.md` folders that extracts YAML frontmatter and splits instructions by H2/H3 headers.
+* **🛡️ Self-Healing Relative Paths:** Automatically resolves relative file path requests by scanning all registered projects in the global registry database.
+* **🍃 VRAM/RAM GPU Cleaner:** Programmatically unloads heavy models from local GPU memory between task executions to keep your computer responsive.
+
+---
+
+## ⚡ Quick Start
+
+### 1. Installation
+
+Clone the repository and initialize the Python virtual environment:
+
+```bash
+# Clone the repository
+git clone https://github.com/your-repo/fourTindex.git
+cd fourTindex
+
+# Create virtual environment
+python -m venv .venv
+
+# Activate virtual environment
+# Windows:
+.venv\Scripts\activate
+# macOS/Linux:
+source .venv/bin/activate
+
+# Install package in editable mode
+pip install -e .
+```
+
+### 2. Auto-setup Ollama & Pull Models
+
+Verify your local Ollama installation and automatically pull all models configured in `config.yaml` using our visual setup tool:
+
+```bash
+fourtindex setup-ollama
+```
+
+<details>
+<summary><b>Manual Installation Instructions (Fallback)</b></summary>
+
+* **Windows**: Download the installer from [ollama.com/download/OllamaSetup.exe](https://ollama.com/download/OllamaSetup.exe) and run the wizard.
+* **macOS**: Install via Homebrew: `brew install ollama` and start: `brew services start ollama`.
+* **Linux**: Run `curl -fsSL https://ollama.com/install.sh | sh` and start: `sudo systemctl start ollama`.
+</details>
+
+### 3. Index Codebase
+
+Initialize the vector database for your current project:
+
+```bash
+fourtindex index .
+```
+
+---
+
+## 💾 VRAM & RAM Memory Optimization
+
+Large Language Models (LLM) and Embedding models loaded by Ollama reside in GPU VRAM and system RAM. By default, they remain in memory for a timeout of 5 minutes. 
+
+To free up your GPU memory instantly after running a large indexing job or vector search session, run the memory cleaner:
+* **Terminal command**: `fourtindex clean-mem`
+* **Agent command**: Ask your coding agent to invoke the `clean_mem` MCP tool.
+
+---
+
+## 🛠️ CLI Command Cheatsheet
+
+| Command | Arguments | Description |
+| :--- | :--- | :--- |
+| `fourtindex index` | `[path]` (default: `.`) | Indexes or re-indexes the target codebase. Uses incremental sync (< 1s). |
+| `fourtindex search` | `"<query>"` `[--limit N]` `[--file-ext EXT]` | Performs semantic search. Filter by extension (e.g. `--file-ext .py`). |
+| `fourtindex query` | `"<question>"` `[--limit N]` | Asks your local Ollama LLM a question about the codebase. |
+| `fourtindex index-skill`| `<path_to_skill>` | Indexes custom agent guidelines (`SKILL.md`) using H2/H3 headers. |
+| `fourtindex search-skills`| `"<query>"` `[--limit N]` | Semantically searches napped customization skills. |
+| `fourtindex setup-ollama`| *None* | Verifies Ollama connection and pulls required models. |
+| `fourtindex clean-mem`  | *None* | Unloads models from Ollama to free VRAM/RAM GPU memory. |
+| `fourtindex mcp`        | *None* | Launches the stdio MCP server for client integrations. |
+
+---
+
+## 🧩 MCP Client Integration
+
+Add `fourTindex` as a tool provider to your AI coding clients:
+
+### Cursor Setup (`.cursorrules` or Global Settings)
+Go to `Cursor Settings > Features > MCP`, add a new tool:
+* **Name**: `fourtindex`
+* **Type**: `stdio`
+* **Command**: `d:/project/fourTindex/.venv/Scripts/fourtindex.exe mcp` *(Note: Always use forward slashes `/` for paths on Windows)*
+
+### Claude Desktop Setup
+Append the following config to your global configuration file (located at `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
+
+```json
+{
+  "mcpServers": {
+    "fourtindex": {
+      "command": "d:/project/fourTindex/.venv/Scripts/fourtindex.exe",
+      "args": [
+        "mcp"
+      ],
+      "env": {
+        "PYTHONPATH": "d:/project/fourTindex"
+      }
+    }
+  }
+}
+```
+
+---
+
+## 📖 MCP Tool Specifications
+
+When pair-programming, your AI Agent will automatically read and invoke these tools:
+
+* **`search_codebase(query: str, project_name: str, limit: int, file_ext: str) -> str`**
+  - Searches codebase semantically. Use `file_ext` (e.g. `".py"`, `".ts"`) to filter out noise.
+* **`get_file_outline(file_path: str, project_name: str) -> str`**
+  - Retrieves a file's structure (classes, methods, imports) without full bodies.
+* **`get_symbol_definition(symbol_name: str, project_name: str) -> str`**
+  - **Crucial Behavior**:
+    - If `symbol_name` is a **Function**: returns the full implementation body.
+    - If `symbol_name` is a **Class**: returns the class outline (docstring, base classes, method signatures). To read class methods, query `ClassName.method_name`.
+* **`read_code_lines(file_path: str, start_line: int, end_line: int, project_name: str) -> str`**
+  - Reads physical lines. Automatically resolves relative paths against the project registry if launched outside the project CWD.
+* **`clean_mem() -> str`**
+  - Unloads models from VRAM/RAM immediately to free system resources.
+* **`index_skill(skill_path: str, project_name: str) -> str`**
+  - Indexes customization `SKILL.md` files by heading.
+* **`search_skills(query: str, project_name: str, limit: int) -> str`**
+  - Searches customization guidelines semantically.
+* **`get_skill_outline(skill_name: str, project_name: str) -> str`**
+  - Lists the headings table of contents of an indexed skill.
+* **`read_skill_section(skill_name: str, heading: str, project_name: str) -> str`**
+  - Reads the exact markdown section content under a heading of an indexed skill.
+* **`save_session_summary(session_id: str, summary_text: str, project_name: str) -> str`**
+  - Saves design decisions/change history.
+
+---
+
+## 🤖 Agent Customization & System Rules
+
+To force your AI Coding Agents to always use `fourTindex` instead of dumping files or listing folders, place a rules file in your workspace:
+
+* **Cursor**: Create `.cursorrules` in your project root.
+* **VS Code / Copilot**: Create `.github/copilot-instructions.md` in your project root.
+* **Gemini / Antigravity**: Create `.agents/AGENTS.md` in your project root.
+
+Copy and paste these guidelines into the file:
+
+```markdown
+# Local Context Retrieval Rules
+
+This codebase is indexed locally via **fourTindex** (an MCP server & local vector indexer). You MUST use fourTindex tools to navigate, search, and inspect the codebase.
+
+## Directives:
+1. **Do not dump directories:** Instead of listing files or reading entire folders, always use `search_codebase` to search semantically. Use the `file_ext` filter (e.g. `".py"`) to exclude noise.
+2. **Read structurally first:** Call `get_file_outline` to read class/function signatures of a file before fetching its implementation.
+3. **Read narrow scopes:** Use `get_symbol_definition` or `read_code_lines` to read specific code blocks. Do not read the entire file if you only need a single function.
+   - *Note on get_symbol_definition: It returns the full implementation body for Functions, but only the outline for Classes. To read a specific class method, query ClassName.method_name.*
+4. **Update DB after edits:** If you modify any code file, you MUST call `index_project` (or run CLI `fourtindex index .`) to update the vector database instantly (takes <1s due to 16x batch and incremental sync).
+5. **Free memory when done:** Call `clean_mem()` tool (or run CLI `fourtindex clean-mem`) when you are done with heavy vector searches or indexing, to release VRAM and RAM immediately.
+6. **Save design history:** Call `save_session_summary` before concluding a task to log your design decisions.
+```
