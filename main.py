@@ -15,111 +15,41 @@ from src.embedder import Embedder
 from src.database import Database
 from src.indexer import Indexer
 from src.llm import LLMClient
+from src.embedding import EmbeddingManager
+from src.indexing_service import IndexOptions, IndexingService, load_project_context
 
 console = Console()
 
 def cmd_index(args):
     config = Config()
-    indexer = Indexer(config)
-    db = Database(config)
-    embedder = Embedder(config)
-    
-    path = os.path.abspath(args.path)
-    if not os.path.exists(path):
-        console.print(f"[bold red]Error:[/bold red] Path '{args.path}' does not exist.")
-        sys.exit(1)
-        
-    console.print(f"[bold blue]Scanning files in:[/bold blue] {path}")
-    files = indexer.scan_files(path)
-    console.print(f"Found [green]{len(files)}[/green] files matching extension criteria.")
-    
-    indexed_count = 0
-    skipped_count = 0
-    
-    with Progress() as progress:
-        task = progress.add_task("[cyan]Processing files...", total=len(files))
-        
-        for file in files:
-            rel_path = os.path.relpath(file, path).replace("\\", "/")
-            current_hash = indexer.compute_file_hash(file)
-            cached_hash = indexer.file_hashes.get(rel_path)
-            
-            if cached_hash == current_hash:
-                skipped_count += 1
-                progress.advance(task)
-                continue
-                
-            progress.console.print(f"Indexing: [yellow]{rel_path}[/yellow]")
-            chunks = indexer.parse_file(file, rel_path)
-            
-            db.delete_file_entries(rel_path, config.project_name)
-            
-            if chunks:
-                ids = []
-                documents = []
-                metadatas = []
-                
-                chunk_texts = [c["content"] for c in chunks]
-                try:
-                    embeddings = embedder.get_embeddings_batch(chunk_texts)
-                except Exception as e:
-                    progress.console.print(f"[bold red]Failed to generate batch embeddings for {rel_path}: {e}[/bold red]")
-                    embeddings = []
-                
-                if len(embeddings) == len(chunks):
-                    for idx, c in enumerate(chunks):
-                        chunk_id = f"{rel_path}#chunk_{idx}"
-                        ids.append(chunk_id)
-                        documents.append(c["content"])
-                        
-                        meta = {
-                            "project_name": config.project_name,
-                            "file_path": rel_path,
-                            "file_name": os.path.basename(file),
-                            "file_ext": os.path.splitext(file)[1].lower(),
-                            "chunk_type": c["chunk_type"],
-                            "symbol_name": c["symbol_name"],
-                            "start_line": c["start_line"],
-                            "end_line": c["end_line"],
-                            "hash": current_hash
-                        }
-                        metadatas.append(meta)
-                    db.upsert_code_chunks(ids, embeddings, documents, metadatas)
-                else:
-                    progress.console.print(f"[bold red]Failed to index {rel_path} due to embedding size mismatch.[/bold red]")
-                
-                # Update Outline
-                outline_summary = indexer.generate_file_outline_summary(chunks, rel_path)
-                try:
-                    outline_embedding = embedder.get_embedding(outline_summary)
-                    outline_id = f"{rel_path}#outline"
-                    outline_meta = {
-                        "project_name": config.project_name,
-                        "file_path": rel_path,
-                        "file_name": os.path.basename(file),
-                        "file_ext": os.path.splitext(file)[1].lower(),
-                        "hash": current_hash
-                    }
-                    db.upsert_file_outline(outline_id, outline_embedding, outline_summary, outline_meta)
-                except Exception as e:
-                    progress.console.print(f"[bold red]Failed to embed outline for {rel_path}: {e}[/bold red]")
-                    
-            indexer.file_hashes[rel_path] = current_hash
-            indexed_count += 1
-            progress.advance(task)
-            
-    # Save project path mapping to registry for resolving relative paths later
-    db.save_project_path(config.project_name, path)
-    
-    if indexed_count > 0:
-        indexer.save_file_hashes()
-        
-    console.print(f"\n[bold green]Success![/bold green] Indexed {indexed_count} files, skipped {skipped_count} unchanged files.")
+    service = IndexingService(config)
+    project_name = args.project_name or config.project_name
+    try:
+        result = service.index_project(
+            args.path,
+            project_name,
+            IndexOptions(
+                embedding_provider=args.embedding_provider,
+                rebuild=args.rebuild,
+                force=args.force,
+                batch_size=args.batch_size,
+                workers=args.workers,
+            ),
+        )
+        style = "bold green" if result.completed else "bold yellow"
+        console.print(result.summary(), style=style)
+        if result.failed:
+            console.print("Failed files: " + ", ".join(result.failed), style="bold red")
+    except KeyboardInterrupt:
+        console.print("Indexing interrupted; completed checkpoints were preserved.", style="yellow")
+        raise SystemExit(130)
+    except Exception as exc:
+        console.print(f"[bold red]Indexing error:[/bold red] {exc}")
+        raise SystemExit(1)
 
 def cmd_search(args):
     config = Config()
-    db = Database(config)
-    embedder = Embedder(config)
+    project_name = args.project_name or config.project_name
     
     ext_str = f" with extension '{args.file_ext}'" if args.file_ext else ""
     console.print(f"[bold blue]Searching codebase for{ext_str}:[/bold blue] '{args.query}'\n")
@@ -130,8 +60,11 @@ def cmd_search(args):
             formatted_ext = args.file_ext if args.file_ext.startswith(".") else f".{args.file_ext}"
             formatted_ext = formatted_ext.lower()
             
-        query_vector = embedder.get_embedding(args.query)
-        results = db.search_code_chunks(query_vector, config.project_name, limit=args.limit, file_ext=formatted_ext)
+        db, manager, project, store = load_project_context(config, project_name)
+        query_vector = manager.embed_query(args.query)
+        results = db.search_project_code(
+            project["project_id"], store["store_id"], query_vector, args.limit, formatted_ext
+        )
         
         if not results:
             console.print("[yellow]No matching code chunks found.[/yellow]")
@@ -160,16 +93,18 @@ def cmd_search(args):
 
 def cmd_query(args):
     config = Config()
-    db = Database(config)
-    embedder = Embedder(config)
     llm = LLMClient(config)
+    project_name = args.project_name or config.project_name
     
     console.print(f"[bold blue]User Query:[/bold blue] {args.question}")
     console.print("[cyan]1. Retrieving context from Vector DB...[/cyan]")
     
     try:
-        query_vector = embedder.get_embedding(args.question)
-        results = db.search_code_chunks(query_vector, config.project_name, limit=args.limit)
+        db, manager, project, store = load_project_context(config, project_name)
+        query_vector = manager.embed_query(args.question)
+        results = db.search_project_code(
+            project["project_id"], store["store_id"], query_vector, args.limit
+        )
         
         if not results:
             console.print("[yellow]No relevant codebase context found.[/yellow]")
@@ -289,6 +224,26 @@ def cmd_clean_mem(args):
     from src.setup_ollama import unload_models
     unload_models()
 
+
+def cmd_providers(args):
+    config = Config()
+    manager = EmbeddingManager(config)
+    table = Table(title="Embedding Providers")
+    table.add_column("Provider", style="cyan")
+    table.add_column("Model")
+    table.add_column("Dimension", justify="right")
+    table.add_column("Enabled")
+    table.add_column("Status")
+    for status in manager.provider_statuses(check=args.check):
+        table.add_row(
+            status["provider"],
+            status["model"],
+            str(status["dimension"]),
+            "yes" if status["enabled"] else "no",
+            status["state"],
+        )
+    console.print(table)
+
 def cmd_mcp(args):
     # Import inside function to avoid starting it during argparse setup
     from src.mcp_server import mcp
@@ -301,6 +256,12 @@ def main():
     # index command
     p_index = subparsers.add_parser("index", help="Index project directory")
     p_index.add_argument("path", nargs="?", default=".", help="Path to project directory (default: current)")
+    p_index.add_argument("--project-name", help="Stable project name")
+    p_index.add_argument("--embedding-provider", default="auto", help="Provider name or auto")
+    p_index.add_argument("--rebuild", action="store_true", help="Build a new provider-isolated index")
+    p_index.add_argument("--force", action="store_true", help="Re-index all matching files")
+    p_index.add_argument("--batch-size", type=int, help="Maximum embedding inputs per request")
+    p_index.add_argument("--workers", type=int, help="Parallel file parsing workers")
     p_index.set_defaults(func=cmd_index)
     
     # search command
@@ -308,12 +269,14 @@ def main():
     p_search.add_argument("query", help="Search query string")
     p_search.add_argument("--limit", type=int, default=5, help="Max results to display")
     p_search.add_argument("--file-ext", help="File extension to filter by (e.g. '.py' or 'js')")
+    p_search.add_argument("--project-name", help="Indexed project name")
     p_search.set_defaults(func=cmd_search)
     
     # query command
     p_query = subparsers.add_parser("query", help="Ask local LLM about codebase")
     p_query.add_argument("question", help="Question about codebase")
     p_query.add_argument("--limit", type=int, default=3, help="Max context chunks to include")
+    p_query.add_argument("--project-name", help="Indexed project name")
     p_query.set_defaults(func=cmd_query)
     
     # index-skill command
@@ -334,6 +297,10 @@ def main():
     # clean-mem command
     p_clean_mem = subparsers.add_parser("clean-mem", help="Unload Ollama models to free VRAM and RAM memory")
     p_clean_mem.set_defaults(func=cmd_clean_mem)
+
+    p_providers = subparsers.add_parser("providers", help="List embedding providers")
+    p_providers.add_argument("--check", action="store_true", help="Call configured providers")
+    p_providers.set_defaults(func=cmd_providers)
 
     # mcp command
     p_mcp = subparsers.add_parser("mcp", help="Start MCP stdio server")

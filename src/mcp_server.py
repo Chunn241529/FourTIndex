@@ -7,6 +7,7 @@ from src.config import Config
 from src.embedder import Embedder
 from src.database import Database
 from src.indexer import Indexer
+from src.indexing_service import IndexOptions, IndexingService, load_project_context
 
 # Configure logging to go to stderr so it doesn't corrupt stdout stdio transport
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
@@ -32,22 +33,16 @@ def search_codebase(query: str, project_name: str = "fourTindex", limit: int = 5
     """
     logger.info(f"search_codebase called with query: '{query}', file_ext: '{file_ext}'")
     try:
-        # Check if database is empty for this project
-        total_chunks = db.code_chunks.count()
-        if total_chunks == 0:
-            return (
-                f"No code chunks found in the database. "
-                f"The project '{project_name}' has not been indexed yet. "
-                f"Please run the 'index_project' tool first to initialize the index."
-            )
-            
         formatted_ext = None
         if file_ext:
             formatted_ext = file_ext if file_ext.startswith(".") else f".{file_ext}"
             formatted_ext = formatted_ext.lower()
             
-        query_vector = embedder.get_embedding(query)
-        results = db.search_code_chunks(query_vector, project_name, limit=limit, file_ext=formatted_ext)
+        project_db, manager, project, store = load_project_context(config, project_name)
+        query_vector = manager.embed_query(query)
+        results = project_db.search_project_code(
+            project["project_id"], store["store_id"], query_vector, limit, formatted_ext
+        )
         
         if not results:
             return (
@@ -78,21 +73,11 @@ def get_file_outline(file_path: str, project_name: str = "fourTindex") -> str:
     """
     logger.info(f"get_file_outline called for: '{file_path}'")
     try:
-        # ChromaDB query works with query embeddings, so we generate a quick dummy search query or exact match
-        # Let's search in the outlines collection by using exact path query or simple semantic lookup
-        query_vector = embedder.get_embedding(f"File: {file_path}")
-        results = db.search_file_outlines(query_vector, project_name, limit=5)
-        
-        # Filter for exact file path if possible
-        for r in results:
-            if r["metadata"].get("file_path") == file_path:
-                return r["content"]
-                
-        # Fallback to the first match if exact path wasn't found
-        if results:
-            return results[0]["content"]
-            
-        return f"No outline found for file: {file_path}"
+        project_db, _, project, store = load_project_context(config, project_name)
+        outline = project_db.get_project_outline(
+            project["project_id"], store["store_id"], file_path
+        )
+        return outline or f"No outline found for file: {file_path}"
     except Exception as e:
         logger.error(f"Error in get_file_outline: {e}")
         return f"Error: {str(e)}"
@@ -107,25 +92,11 @@ def get_symbol_definition(symbol_name: str, project_name: str = "fourTindex") ->
     """
     logger.info(f"get_symbol_definition called for: '{symbol_name}'")
     try:
-        # Query database directly using ChromaDB metadata where filters
-        # Note: ChromaDB doesn't allow direct metadata where query without an embedding,
-        # so we pass the symbol name embedding to search, and filter results by matching metadata
-        query_vector = embedder.get_embedding(symbol_name)
-        results = db.code_chunks.query(
-            query_embeddings=[query_vector],
-            n_results=10,
-            where={
-                "$and": [
-                    {"symbol_name": symbol_name},
-                    {"project_name": project_name}
-                ]
-            }
+        project_db, _, project, store = load_project_context(config, project_name)
+        definition = project_db.get_project_symbol(
+            project["project_id"], store["store_id"], symbol_name
         )
-        
-        if results and "documents" in results and results["documents"] and results["documents"][0]:
-            return results["documents"][0][0]
-            
-        return f"Symbol '{symbol_name}' definition not found."
+        return definition or f"Symbol '{symbol_name}' definition not found."
     except Exception as e:
         logger.error(f"Error in get_symbol_definition: {e}")
         return f"Error: {str(e)}"
@@ -228,7 +199,13 @@ def save_session_summary(session_id: str, summary_text: str, project_name: str =
         return f"Error saving session summary: {str(e)}"
 
 @mcp.tool()
-def index_project(project_path: str = ".", project_name: str = "fourTindex") -> str:
+def index_project(
+    project_path: str = ".",
+    project_name: str = "fourTindex",
+    embedding_provider: str = "auto",
+    rebuild: bool = False,
+    force: bool = False,
+) -> str:
     """Scans and indexes (or updates index for) the specified project path.
     Only modified files are re-embedded.
     
@@ -238,87 +215,17 @@ def index_project(project_path: str = ".", project_name: str = "fourTindex") -> 
     """
     logger.info(f"index_project called for path: '{project_path}'")
     try:
-        files = indexer.scan_files(project_path)
-        logger.info(f"Found {len(files)} files to check.")
-        
-        indexed_count = 0
-        skipped_count = 0
-        
-        for file in files:
-            rel_path = os.path.relpath(file, project_path).replace("\\", "/")
-            current_hash = indexer.compute_file_hash(file)
-            cached_hash = indexer.file_hashes.get(rel_path)
-            
-            if cached_hash == current_hash:
-                skipped_count += 1
-                continue
-                
-            logger.info(f"Indexing modified file: {rel_path}")
-            chunks = indexer.parse_file(file, rel_path)
-            
-            # Clean up old chunks
-            db.delete_file_entries(rel_path, project_name)
-            
-            if chunks:
-                ids = []
-                documents = []
-                metadatas = []
-                
-                # Batch generate embeddings for all chunks in the file at once
-                chunk_texts = [c["content"] for c in chunks]
-                embeddings = embedder.get_embeddings_batch(chunk_texts)
-                
-                for idx, c in enumerate(chunks):
-                    chunk_id = f"{rel_path}#chunk_{idx}"
-                    ids.append(chunk_id)
-                    documents.append(c["content"])
-                    
-                    meta = {
-                        "project_name": project_name,
-                        "file_path": rel_path,
-                        "file_name": os.path.basename(file),
-                        "file_ext": os.path.splitext(file)[1].lower(),
-                        "chunk_type": c["chunk_type"],
-                        "symbol_name": c["symbol_name"],
-                        "start_line": c["start_line"],
-                        "end_line": c["end_line"],
-                        "hash": current_hash
-                    }
-                    metadatas.append(meta)
-                    
-                # Guard against length mismatch just in case
-                if len(embeddings) == len(ids):
-                    db.upsert_code_chunks(ids, embeddings, documents, metadatas)
-                else:
-                    logger.error(f"Length mismatch: embeddings={len(embeddings)}, ids={len(ids)}. Falling back to sequential upsert.")
-                    # Fallback
-                    embeddings = [embedder.get_embedding(doc) for doc in documents]
-                    db.upsert_code_chunks(ids, embeddings, documents, metadatas)
-                
-                # File Outline Summary
-                outline_summary = indexer.generate_file_outline_summary(chunks, rel_path)
-                outline_embedding = embedder.get_embedding(outline_summary)
-                outline_id = f"{rel_path}#outline"
-                outline_meta = {
-                    "project_name": project_name,
-                    "file_path": rel_path,
-                    "file_name": os.path.basename(file),
-                    "file_ext": os.path.splitext(file)[1].lower(),
-                    "hash": current_hash
-                }
-                db.upsert_file_outline(outline_id, outline_embedding, outline_summary, outline_meta)
-                
-            # Update cache
-            indexer.file_hashes[rel_path] = current_hash
-            indexed_count += 1
-            
-        # Save project path registry
-        db.save_project_path(project_name, project_path)
-
-        if indexed_count > 0:
-            indexer.save_file_hashes()
-            
-        msg = f"Indexing finished. Indexed {indexed_count} files, skipped {skipped_count} unchanged files."
+        service = IndexingService(config)
+        result = service.index_project(
+            project_path,
+            project_name,
+            IndexOptions(
+                embedding_provider=embedding_provider,
+                rebuild=rebuild,
+                force=force,
+            ),
+        )
+        msg = result.summary()
         logger.info(msg)
         return msg
     except Exception as e:

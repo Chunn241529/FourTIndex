@@ -5,6 +5,7 @@ import yaml
 import ast
 import hashlib
 import json
+import pathspec
 from src.config import Config
 
 class Indexer:
@@ -47,6 +48,17 @@ class Indexer:
         """Recursively scans the project directory for supported files, applying exclusion rules."""
         project_root = os.path.abspath(project_root)
         matched_files = []
+        ignore_lines = list(self.config.exclude_globs)
+        if self.config.respect_gitignore:
+            for ignore_name in (".gitignore", ".fourtindexignore"):
+                ignore_path = os.path.join(project_root, ignore_name)
+                if os.path.exists(ignore_path):
+                    try:
+                        with open(ignore_path, "r", encoding="utf-8", errors="replace") as file:
+                            ignore_lines.extend(file.read().splitlines())
+                    except OSError:
+                        pass
+        ignore_spec = pathspec.GitIgnoreSpec.from_lines(ignore_lines)
         
         exclude_dirs = [os.path.normpath(os.path.join(project_root, d)) for d in self.config.exclude_dirs]
         exclude_names = set(self.config.exclude_dirs)
@@ -55,14 +67,27 @@ class Indexer:
             # Prune directory search path in-place to ignore excluded folders
             dirs[:] = [
                 d for d in dirs 
-                if d not in exclude_names and os.path.abspath(os.path.join(root, d)) not in exclude_dirs
+                if d not in exclude_names
+                and os.path.abspath(os.path.join(root, d)) not in exclude_dirs
+                and not ignore_spec.match_file(
+                    os.path.relpath(os.path.join(root, d), project_root).replace("\\", "/") + "/"
+                )
             ]
 
             for file in files:
                 ext = os.path.splitext(file)[1].lower()
                 if ext in self.config.supported_extensions:
                     full_path = os.path.join(root, file)
-                    matched_files.append(full_path)
+                    relative_path = os.path.relpath(full_path, project_root).replace("\\", "/")
+                    try:
+                        file_size = os.path.getsize(full_path)
+                    except OSError:
+                        continue
+                    if (
+                        not ignore_spec.match_file(relative_path)
+                        and file_size <= self.config.max_file_size_bytes
+                    ):
+                        matched_files.append(full_path)
                     
         return matched_files
 

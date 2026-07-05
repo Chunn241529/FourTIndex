@@ -62,8 +62,9 @@ graph TD
 
 ## ✨ Key Features
 
-* **⚡ 16x Batch Embedding Optimization:** Blazing fast indexing using batch API execution.
-* **🔄 Incremental Sync:** Only re-indexes modified files based on SHA256 hashes. Index updates take less than 1 second.
+* **⚡ Project-wide Batch Embeddings:** Packs chunks from multiple files into provider-aware batches.
+* **🔄 Resumable Incremental Sync:** Checkpoints successful files and only re-indexes changed content.
+* **🌐 Multi-provider Embeddings:** Supports Voyage, Jina, Cloudflare, Pinecone, Gemini, Cohere, NVIDIA, and local Ollama.
 * **🌳 AST-based Python Parsing:** Extracts class definitions, docstrings, method signatures, and decorators as structured logical blocks.
 * **📝 Heading-Aware Markdown Splitting:** Dedicated parser for customization `SKILL.md` folders that extracts YAML frontmatter and splits instructions by H2/H3 headers.
 * **🛡️ Self-Healing Relative Paths:** Automatically resolves relative file path requests by scanning all registered projects in the global registry database.
@@ -119,6 +120,29 @@ Initialize the vector database for your current project:
 fourtindex index .
 ```
 
+### 4. Optional Cloud Embedding Providers
+
+Copy `.env.example` to `.env`, add only the API keys you intend to use, and explicitly opt in to a provider chain. Source code is never sent to a cloud provider merely because a key exists.
+
+```dotenv
+FOURTINDEX_EMBEDDING_PROVIDER_CHAIN=voyage,jina,cloudflare,pinecone,gemini,cohere,nvidia,ollama
+```
+
+Inspect configuration without revealing credentials:
+
+```bash
+fourtindex providers
+fourtindex providers --check
+```
+
+Each project pins its provider, model, dimension, and query/document modes. Changing providers requires a full rebuild because embedding spaces are incompatible:
+
+```bash
+fourtindex index . --rebuild --embedding-provider ollama
+```
+
+Free allocations change over time. As verified on 2026-07-05, Voyage provides 200M initial tokens for supported models, Jina provides 10M tokens to new accounts, Pinecone Starter provides 5M tokens per model each month, Cloudflare provides 10,000 Neurons daily, and Gemini, Cohere, and NVIDIA provide limited free or evaluation access. Confirm current provider terms before enabling cloud processing.
+
 ---
 
 ## 💾 VRAM & RAM Memory Optimization
@@ -135,7 +159,8 @@ To free up your GPU memory instantly after running a large indexing job or vecto
 
 | Command | Arguments | Description |
 | :--- | :--- | :--- |
-| `fourtindex index` | `[path]` (default: `.`) | Indexes or re-indexes the target codebase. Uses incremental sync (< 1s). |
+| `fourtindex index` | `[path]` plus provider/rebuild options | Indexes or resumes the target codebase using its pinned embedding profile. |
+| `fourtindex providers` | `[--check]` | Lists configured providers without exposing API keys. |
 | `fourtindex search` | `"<query>"` `[--limit N]` `[--file-ext EXT]` | Performs semantic search. Filter by extension (e.g. `--file-ext .py`). |
 | `fourtindex query` | `"<question>"` `[--limit N]` | Asks your local Ollama LLM a question about the codebase. |
 | `fourtindex index-skill`| `<path_to_skill>` | Indexes custom agent guidelines (`SKILL.md`) using H2/H3 headers. |
