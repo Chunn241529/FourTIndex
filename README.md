@@ -2,7 +2,7 @@
   <img src="assets/banner.png" alt="fourTindex Banner" width="100%" style="border-radius: 8px;" />
 </p>
 
-<h1 align="center">fourTindex 🚀</h1>
+<h1 align="center">FourTIndex 🚀</h1>
 
 <p align="center">
   <strong>High-fidelity local codebase semantic indexer and Model Context Protocol (MCP) server for local-first AI development.</strong>
