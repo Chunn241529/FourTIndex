@@ -327,9 +327,7 @@ This codebase is indexed locally via **fourTindex** (an MCP server & local vecto
 
 If **fourTindex** has saved you API costs and helped you work faster, please consider supporting the project's development!
 
-### 🌍 International Sponsors
-
-<iframe src="https://github.com/sponsors/Chunn241529/button" title="Sponsor Chunn241529" height="32" width="114" style="border: 0; border-radius: 6px;"></iframe>
+[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?style=for-the-badge&logo=githubsponsors)](https://github.com/sponsors/Chunn241529)
 
 &nbsp;
 
