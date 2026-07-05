@@ -323,38 +323,54 @@ This codebase is indexed locally via **fourTindex** (an MCP server & local vecto
 
 ---
 
-## 💖 Support the Project
+<h2 align="center">💖 Support the Project</h2>
 
-If **fourTindex** has saved you API costs and helped you work faster, please consider supporting the project's development!
+<p align="center">
+  If <b>fourTindex</b> has saved you API costs and helped you work faster, please consider supporting the project's development!
+</p>
 
-[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?style=for-the-badge&logo=githubsponsors)](https://github.com/sponsors/Chunn241529)
+<p align="center">
+  <a href="https://github.com/sponsors/Chunn241529" target="_blank">
+    <img src="https://img.shields.io/badge/GitHub%20Sponsors-ea4aaa?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="GitHub Sponsors" />
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://paypal.me/TrungVuong24/5USD" target="_blank">
+    <img src="https://img.shields.io/badge/Donate%20via%20PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white" alt="PayPal" />
+  </a>
+</p>
 
-&nbsp;
+<p align="center">
+  <i>Click the buttons above to sponsor or donate via PayPal</i>
+</p>
 
-[![Donate via PayPal](https://img.shields.io/badge/Donate-PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/TrungVuong24/5USD)
+<br/>
 
-*(Click the button above to donate $5 USD or custom amount via PayPal)*
+<hr/>
 
----
+<p align="center">
+  <b>🇻🇳 Dành cho Lập trình viên Việt Nam (Vietnamese Backers)</b><br/>
+  Bạn có thể mời tác giả một ly cà phê qua chuyển khoản ngân hàng nhanh (VietQR) dưới đây:
+</p>
+
+<div align="center">
+  <table style="border: 1px solid #30363d; border-radius: 8px; border-collapse: separate; overflow: hidden; background-color: #0d1117;">
+    <tr>
+      <td align="center" style="padding: 20px; border: none; background-color: #161b22;">
+        <b>Quét mã VietQR chuyển khoản</b><br/><br/>
+        <img src="https://img.vietqr.io/image/MB-0358570211-compact2.png?addInfo=Donate%20FourTIndex&accountName=Vuong%20Nguyen%20Trung" width="220px" style="border-radius: 6px; border: 1px solid #30363d;" alt="VietQR Donation" />
+      </td>
+      <td align="left" style="padding: 25px; border: none; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; line-height: 1.6;">
+        <h4 style="margin-top: 0; color: #58a6ff;">🏦 THÔNG TIN CHUYỂN KHOẢN</h4>
+        <p style="margin: 6px 0;">Ngân hàng: <b>MB Bank (Ngân hàng Quân đội)</b></p>
+        <p style="margin: 6px 0;">Số tài khoản: <code style="background-color: #30363d; padding: 2px 6px; border-radius: 4px; color: #ff7b72;">0358570211</code></p>
+        <p style="margin: 6px 0;">Tên tài khoản: <b>VUONG NGUYEN TRUNG</b></p>
+        <p style="margin: 6px 0;">Nội dung chuyển khoản: <code style="background-color: #30363d; padding: 2px 6px; border-radius: 4px; color: #ff7b72;">Donate FourTIndex</code></p>
+        <hr style="border: 0; border-top: 1px solid #30363d; margin: 15px 0;"/>
+        <p style="margin: 6px 0; font-size: 13px; color: #8b949e;">👉 <i>Hệ thống tự động nhận diện và ghi nhận đóng góp từ cộng đồng. Cảm ơn sự đồng hành của bạn!</i></p>
+      </td>
+    </tr>
+  </table>
+</div>
 
 
-Bạn có thể mời tác giả một ly cà phê qua chuyển khoản ngân hàng nhanh (VietQR) bằng cách quét mã QR dưới đây:
-
-> **Lưu ý:** Vui lòng thay thế `<BANK_ID>` (ví dụ: `MB`, `VCB`), `<ACCOUNT_NO>` (Số tài khoản) và `<ACCOUNT_NAME>` (Tên tài khoản) trong liên kết dưới đây bằng thông tin tài khoản ngân hàng của bạn trước khi công bố.
-
-<table>
-  <tr>
-    <td align="center">
-      <b>Quét mã VietQR để chuyển khoản</b><br/><br/>
-      <img src="https://img.vietqr.io/image/MB-0358570211-compact2.png?addInfo=Donate%20FourTIndex&accountName=Vuong%20Nguyen%20Trung" width="230px" alt="VietQR Donation" />
-    </td>
-    <td align="center" valign="middle" style="padding: 20px;">
-      <b>Thông tin chuyển khoản thủ công:</b><br/><br/>
-      🏦 Ngân hàng: <b>MB Bank</b><br/>
-      🔢 Số tài khoản: <b>0358570211</b><br/>
-      👤 Tên tài khoản: <b>Vuong Nguyen Trung</b><br/>
-      📝 Nội dung chuyển khoản: <b>Donate fourTindex</b>
-    </td>
-  </tr>
-</table>
 
