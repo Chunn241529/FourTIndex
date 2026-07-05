@@ -33,7 +33,22 @@ console = Console()
 def cmd_index(args):
     config = Config()
     service = IndexingService(config)
-    project_name = args.project_name or config.project_name
+    
+    project_name = args.project_name
+    if not project_name:
+        target_path = os.path.abspath(args.path)
+        target_config_path = os.path.join(target_path, "config.yaml")
+        if os.path.exists(target_config_path):
+            try:
+                import yaml
+                with open(target_config_path, "r", encoding="utf-8") as f:
+                    ydata = yaml.safe_load(f) or {}
+                    project_name = ydata.get("project", {}).get("name")
+            except Exception:
+                pass
+        if not project_name:
+            project_name = os.path.basename(target_path) or config.project_name
+
     try:
         result = service.index_project(
             args.path,
