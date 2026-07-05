@@ -339,7 +339,6 @@ If **fourTindex** has saved you API costs and helped you work faster, please con
 
 ---
 
-### 🇻🇳 Dành cho Lập trình viên Việt Nam (Vietnamese Backers)
 
 Bạn có thể mời tác giả một ly cà phê qua chuyển khoản ngân hàng nhanh (VietQR) bằng cách quét mã QR dưới đây:
 
