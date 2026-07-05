@@ -423,13 +423,25 @@ def clean_mem() -> str:
     Use this to free up GPU VRAM and system RAM when you are done with heavy vector searches or indexing.
     """
     logger.info("clean_mem called via MCP")
+    result = ""
     try:
         from src.setup_ollama import unload_models
         unload_models()
-        return "Successfully unloaded all models from Ollama VRAM/RAM."
+        result += "Successfully unloaded all models from Ollama VRAM/RAM.\n"
     except Exception as e:
         logger.error(f"Error in clean_mem: {e}")
-        return f"Error: {str(e)}"
+        result += f"Error unloading models: {str(e)}\n"
+        
+    try:
+        from src.token_meter import evaluate_latest_session
+        report = evaluate_latest_session()
+        result += report
+    except Exception as e:
+        logger.error(f"Error in token evaluation during clean_mem: {e}")
+        result += f"\n[AgentTokenMeter] Lỗi: {str(e)}"
+        
+    return result
+
 
 if __name__ == "__main__":
     logger.info("Starting fourTindex MCP Server...")

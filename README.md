@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.png" alt="FourTIndex Banner" width="100%" style="border-radius: 8px;" />
+</p>
+
 <h1 align="center">FourTIndex 🚀</h1>
 
 <p align="center">
@@ -20,8 +24,8 @@
 - [📐 Architecture & Data Flow](#-architecture--data-flow)
 - [✨ Key Features](#-key-features)
 - [⚡ Quick Start](#-quick-start)
-- [💾 VRAM & RAM Memory Optimization](#-vram--ram-memory-optimization)
-- [🛠️ CLI Command cheatsheet](#%EF%B8%8F-cli-command-cheatsheet)
+- [💾 VRAM & RAM Memory Optimization & Agent Token Counter](#-vram--ram-memory-optimization--agent-token-counter)
+- [🛠️ CLI Command Cheatsheet](#%EF%B8%8F-cli-command-cheatsheet)
 - [🧩 MCP Client Integration](#-mcp-client-integration)
 - [📖 MCP Tool Specifications](#-mcp-tool-specifications)
 - [🤖 Agent Customization & System Rules](#-agent-customization--system-rules)
@@ -32,7 +36,8 @@
 
 **FourTIndex** is designed for software developers who pair-program with AI agents (like Cursor, Claude Desktop, Copilot, or Antigravity) and want to keep their codebase index 100% local, secure, and lightning-fast. 
 
-By running a local vector database (ChromaDB) and local LLMs (Ollama), `fourTindex` parses your codebase (using AST for Python structures and semantic markdown chunking for skills), indexes it, and exposes it via Model Context Protocol. AI agents can semantically search your codebase, query high-level outlines, and read selected files incrementally—saving token quota and preventing huge context windows from slowing down reasoning.
+By running a local vector database (ChromaDB) and local LLMs (Ollama), `FourTIndex` parses your codebase (using AST for Python structures and semantic markdown chunking for skills), indexes it, and exposes it via Model Context Protocol. AI agents can semantically search your codebase, query high-level outlines, and read selected files incrementally—saving token quota and preventing huge context windows from slowing down reasoning.
+
 
 ---
 
@@ -40,19 +45,46 @@ By running a local vector database (ChromaDB) and local LLMs (Ollama), `fourTind
 
 ```mermaid
 graph TD
-    A[AI Coding Agent <br/> Cursor / Claude / Antigravity] -- JSON-RPC over stdio --> B(fourTindex MCP Server)
-    B --> C[Local Python CLI <br/> main.py]
-    C --> D[(ChromaDB Vector Store <br/> SQLite Hash Storage)]
-    C --> E[Local Ollama Service]
-    E --> F[qwen3-embedding:4b <br/> nomic-embed-text]
-    E --> G[qwen2.5-coder:7b]
+    %% 1. Clients
+    Agent[AI Coding Agent <br/> Cursor / Claude Desktop / Antigravity]
     
-    style A fill:#4F46E5,stroke:#312E81,stroke-width:2px,color:#fff
-    style B fill:#0EA5E9,stroke:#0369A1,stroke-width:2px,color:#fff
-    style C fill:#10B981,stroke:#047857,stroke-width:2px,color:#fff
-    style D fill:#F59E0B,stroke:#B45309,stroke-width:2px,color:#fff
-    style E fill:#EC4899,stroke:#BE185D,stroke-width:2px,color:#fff
+    %% 2. MCP Server
+    subgraph Server ["FourTIndex MCP Server"]
+        M_Server[mcp_server.py]
+        
+        subgraph Core ["1. Semantic Code Indexer"]
+            DB_Chroma[(ChromaDB <br/> SQLite Hash Store)]
+            Ollama[Local Ollama <br/> Embeddings & LLM]
+        end
+        
+        subgraph Meter ["2. Built-in AgentTokenMeter"]
+            Log_Read[Log File Parsers]
+            DB_Meter[(SQLite <br/> meter.db)]
+        end
+    end
+    
+    %% 3. Log files (External to server, written by agents)
+    Agent_Logs[Agent Log Files <br/> transcript_full.jsonl / .log]
+    
+    %% Connections for Indexing
+    Agent -- "JSON-RPC via stdio" --> M_Server
+    M_Server -->|"Semantic Search / Outline"| DB_Chroma
+    M_Server -->|"Generate Embeddings"| Ollama
+    
+    %% Connections for Token Meter
+    Agent -->|"Writes Conversation History"| Agent_Logs
+    M_Server -->|"clean_mem() triggered"| Log_Read
+    Log_Read -->|"Read & Parse Logs"| Agent_Logs
+    Log_Read -->|"Log usage & pricing"| DB_Meter
+    Log_Read -->|"Return Token Report"| M_Server
+    
+    style Agent fill:#4F46E5,stroke:#312E81,stroke-width:2px,color:#fff
+    style Server fill:#0F172A,stroke:#334155,stroke-width:2px,color:#fff
+    style Core fill:#1E293B,stroke:#475569,stroke-width:1px,color:#fff
+    style Meter fill:#064E3B,stroke:#065F46,stroke-width:1px,color:#fff
+    style Agent_Logs fill:#0891B2,stroke:#155E75,stroke-width:2px,color:#fff
 ```
+
 
 ---
 
@@ -70,7 +102,7 @@ graph TD
 
 ## 🔰 Quick Setup Guide
 
-A step-by-step guide to quickly install, configure API keys, and integrate **fourTindex** with **Cursor** or **Claude Desktop**.
+A step-by-step guide to quickly install, configure API keys, and integrate **FourTIndex** with **Cursor** or **Claude Desktop**.
 
 ### 1. Install Required Core Tools
 * **Step 1: Install Ollama** (Local offline AI runner)
@@ -81,8 +113,8 @@ A step-by-step guide to quickly install, configure API keys, and integrate **fou
   1. Download the latest Python release from [Python.org](https://www.python.org/downloads/) or install **Python** directly from the **Microsoft Store** (Windows).
   2. **⚠️ IMPORTANT:** During the initial Python setup window, you **MUST** check the box for **"Add Python to PATH"** at the bottom before clicking the install button.
 
-### 2. Download and Install fourTindex
-1. Download this **fourTindex** repository to your machine (download the `.zip` file and extract it).
+### 2. Download and Install FourTIndex
+1. Download this **FourTIndex** repository to your machine (download the `.zip` file and extract it).
 2. Navigate to the extracted repository folder.
 3. **Open a terminal window at this folder:**
    * **Windows Quick Method:** Click the address bar at the top of the file explorer (which displays the folder path like `D:\project\FourTIndex`), type `cmd` and press **Enter**. A command prompt window will open.
@@ -102,12 +134,12 @@ If you want to use cloud embedding models for higher speed or quality (e.g., Voy
    JINA_API_KEY=your_api_key_here
    GEMINI_API_KEY=your_api_key_here
    ```
-4. On the `FOURTINDEX_EMBEDDING_PROVIDER_CHAIN` line, list the providers you want to prioritize. fourTindex will check them from left to right; if one fails or runs out of quota, it will automatically fallback to the next:
+4. On the `FOURTINDEX_EMBEDDING_PROVIDER_CHAIN` line, list the providers you want to prioritize. FourTIndex will check them from left to right; if one fails or runs out of quota, it will automatically fallback to the next:
    ```dotenv
    # Example: Prefer Voyage, fallback to Jina, and then fallback to offline Ollama
    FOURTINDEX_EMBEDDING_PROVIDER_CHAIN=voyage,jina,ollama
    ```
-   *By default, if you don't configure any keys or edit this file, fourTindex will run offline using Ollama.*
+   *By default, if you don't configure any keys or edit this file, FourTIndex will run offline using Ollama.*
 
 ### 4. Pull Offline Models
 Go back to the command prompt from Step 2, and run the following command to automatically download the default semantic search models:
@@ -131,7 +163,7 @@ fourtindex setup-ollama
      *(If it doesn't connect, try: `python -m fourtindex mcp`)*
 6. Click **Save**. If you see a **green dot** (Active) next to `fourtindex`, the integration is successful!
 
-You can now chat with the Cursor AI and ask: *"Please search the codebase semantically..."* or *"Get file outline..."*, and it will invoke fourTindex automatically.
+You can now chat with the Cursor AI and ask: *"Please search the codebase semantically..."* or *"Get file outline..."*, and it will invoke FourTIndex automatically.
 
 ---
 
@@ -206,13 +238,65 @@ Free allocations change over time. As verified on 2026-07-05, Voyage provides 20
 
 ---
 
-## 💾 VRAM & RAM Memory Optimization
+## 💾 VRAM & RAM Memory Optimization & Agent Token Counter
 
 Large Language Models (LLM) and Embedding models loaded by Ollama reside in GPU VRAM and system RAM. By default, they remain in memory for a timeout of 5 minutes. 
 
+### 1. VRAM Memory Cleaner
 To free up your GPU memory instantly after running a large indexing job or vector search session, run the memory cleaner:
 * **Terminal command**: `fourtindex clean-mem`
 * **Agent command**: Ask your coding agent to invoke the `clean_mem` MCP tool.
+
+### 2. Built-in Agent Token Counter (AgentTokenMeter) — New!
+FourTIndex now has a built-in token usage counter that runs completely offline and respects security policies (Zero Policy Touch). Every time the memory cleaner (`clean_mem` MCP tool or CLI `fourtindex clean-mem`) is executed, it automatically parses the active agent's log file (e.g. Antigravity's transcript or Claude Desktop's log) and prints a token usage & cost summary!
+
+#### Output Example:
+```text
+Unloading models from Ollama VRAM/RAM...
+✓ All configured models unloaded successfully. VRAM & RAM freed!
+Successfully unloaded all models from Ollama VRAM/RAM.
+
+============================================================
+                BÁO CÁO ĐÁNH GIÁ SỬ DỤNG TOKEN
+============================================================
+Agent:               ANTIGRAVITY
+Model:               gemini-3.5-flash
+ID Hội thoại:        d34fc9ef-1f1b-4a28-81b8-69c4d77435a7
+------------------------------------------------------------
+ 📊 LƯỢT VỪA XONG (LATEST TURN):
+  - Prompt (Input):    64 tokens
+  - Completion (Out):  17,174 tokens
+  - Tổng số Token:     17,238
+  - Số Tool đã gọi:    9
+  - Chi phí lượt này:  $0.154662 USD
+------------------------------------------------------------
+ 📈 TỔNG CẢ PHIÊN (TOTAL SESSION):
+  - Prompt (Input):    4,728 tokens
+  - Completion (Out):  87,342 tokens
+  - Tổng số Token:     92,070
+  - Số Tool đã gọi:    68
+  - Tổng chi phí:      $0.793170 USD
+============================================================
+```
+
+#### How it works:
+It parses local `.jsonl` transcript logs of Antigravity or debug log files of Claude Desktop, calculates the tokens using `tiktoken` (or characters-to-tokens approximations), and records them in a local SQLite database (`~/.agent_token_meter/meter.db`) using standard 2026 pricing. No network proxy required!
+
+#### Optional Real-time Watch CLI:
+You can also run a dedicated CLI watchdog in a separate terminal window to live-track your token usage:
+1. Navigate to the scratch directory:
+   `cd scratch/agent-token-meter`
+2. Run the watcher:
+   `python cli.py watch`
+   *(This will clear the screen and display a beautiful updated report after every response from the Agent).*
+
+### 📊 Benchmark: With vs Without FourTIndex
+To compare the efficiency of utilizing FourTIndex vs reading the whole codebase manually, run our benchmark simulation:
+```bash
+python scratch/benchmark.py
+```
+This script runs a mock query task under both scenarios (indexing vs full folder read) and prints a comparison graph. Utilizing FourTIndex typically achieves **95%+ token context savings** (saving up to 30x on API costs!).
+
 
 ---
 
@@ -234,7 +318,7 @@ To free up your GPU memory instantly after running a large indexing job or vecto
 
 ## 🧩 MCP Client Integration
 
-Add `fourTindex` as a tool provider to your AI coding clients:
+Add `FourTIndex` as a tool provider to your AI coding clients:
 
 ### Cursor Setup (`.cursorrules` or Global Settings)
 Go to `Cursor Settings > Features > MCP`, add a new tool:
@@ -294,7 +378,7 @@ When pair-programming, your AI Agent will automatically read and invoke these to
 
 ## 🤖 Agent Customization & System Rules
 
-To force your AI Coding Agents to always use `fourTindex` instead of dumping files or listing folders, place a rules file in your workspace:
+To force your AI Coding Agents to always use `FourTIndex` instead of dumping files or listing folders, place a rules file in your workspace:
 
 * **Cursor**: Create `.cursorrules` in your project root.
 * **VS Code / Copilot**: Create `.github/copilot-instructions.md` in your project root.
@@ -305,7 +389,7 @@ Copy and paste these guidelines into the file:
 ```markdown
 # Local Context Retrieval Rules
 
-This codebase is indexed locally via **fourTindex** (an MCP server & local vector indexer). You MUST use fourTindex tools to navigate, search, and inspect the codebase.
+This codebase is indexed locally via **FourTIndex** (an MCP server & local vector indexer). You MUST use FourTIndex tools to navigate, search, and inspect the codebase.
 
 ## Directives:
 1. **Do not dump directories:** Instead of listing files or reading entire folders, always use `search_codebase` to search semantically. Use the `file_ext` filter (e.g. `".py"`) to exclude noise.
@@ -322,7 +406,7 @@ This codebase is indexed locally via **fourTindex** (an MCP server & local vecto
 <h2 align="center">💖 Support the Project</h2>
 
 <p align="center">
-  If <b>fourTindex</b> has saved you API costs and helped you work faster, please consider supporting the project's development!
+  If <b>FourTIndex</b> has saved you API costs and helped you work faster, please consider supporting the project's development!
 </p>
 
 <p align="center">
