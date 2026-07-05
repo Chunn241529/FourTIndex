@@ -1,6 +1,6 @@
 # Cấu hình fourTindex
 project:
-  name: "fourTindex"
+  name: "FourTIndex"
   exclude_dirs:
     - ".git"
     - "node_modules"
@@ -33,7 +33,6 @@ ollama:
 
 embedding:
   provider_chain:
-    - "voyage"
     - "ollama"
   batch_size: 64
   batch_max_chars: 250000
