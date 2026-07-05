@@ -1,4 +1,4 @@
-<h1 align="left">FourTIndex 🚀</h1>
+<h1 align="center">FourTIndex 🚀</h1>
 
 <p align="center">
   <strong>High-fidelity local codebase semantic indexer and Model Context Protocol (MCP) server for local-first AI development.</strong>
