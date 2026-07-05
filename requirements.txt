@@ -1,0 +1,5 @@
+chromadb>=0.4.24
+ollama>=0.2.1
+mcp>=1.0.0
+pyyaml>=6.0.1
+rich>=13.7.1
