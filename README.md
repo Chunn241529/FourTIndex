@@ -72,9 +72,74 @@ graph TD
 
 ---
 
-## ⚡ Quick Start
+## 🔰 Hướng dẫn thiết lập nhanh (Quick Setup Guide)
 
-### 1. Installation
+Hướng dẫn từng bước giúp bạn nhanh chóng cài đặt, cấu hình API Keys và tích hợp **fourTindex** vào **Cursor** hoặc **Claude Desktop**.
+
+### 1. Cài đặt các công cụ nền tảng
+* **Bước 1: Tải & Cài đặt Ollama** (Trình chạy mô hình AI offline)
+  1. Truy cập trang chủ [Ollama.com](https://ollama.com) và tải ứng dụng về máy.
+  2. Nhấp đúp vào file vừa tải để cài đặt (chỉ cần bấm **Install** rồi đợi chạy xong).
+  3. Để Ollama tự chạy ngầm dưới khay hệ thống (nút kế bên đồng hồ).
+* **Bước 2: Cài đặt Python**
+  1. Tải Python bản mới nhất tại [Python.org](https://www.python.org/downloads/) hoặc cài ứng dụng **Python** trên **Microsoft Store** (Windows).
+  2. **⚠️ LƯU Ý QUAN TRỌNG:** Trong màn hình cài đặt đầu tiên của Python, bạn **BẮT BUỘC** phải tích chọn vào ô **"Add Python to PATH"** ở phía dưới cùng trước khi bấm nút cài đặt.
+
+### 2. Tải và Cài đặt fourTindex
+1. Tải thư mục mã nguồn **fourTindex** này về máy tính của bạn (tải file `.zip` rồi giải nén ra).
+2. Vào thư mục chứa mã nguồn vừa giải nén.
+3. **Mở cửa sổ dòng lệnh tại thư mục này:**
+   * **Cách nhanh nhất:** Nhấp chuột vào thanh địa chỉ ở phía trên cùng của cửa sổ thư mục (nơi hiển thị đường dẫn như `D:\project\FourTIndex`), gõ chữ `cmd` rồi bấm phím **Enter**. Một cửa sổ Command Prompt màu đen sẽ xuất hiện.
+4. **Cài đặt thư viện:**
+   * Dán lệnh sau vào cửa sổ đen đó và bấm **Enter**:
+     ```bash
+     pip install -e .
+     ```
+
+### 3. Cấu hình API Key (File .env)
+Nếu bạn muốn sử dụng các mô hình nhúng đám mây (Cloud Embeddings) để tăng tốc độ và chất lượng (ví dụ: Voyage AI, Jina, Gemini...):
+1. Tìm file `.env.example` trong thư mục dự án.
+2. Tạo một bản sao của file này và đổi tên thành `.env` (hoặc đổi tên trực tiếp file `.env.example` thành `.env`).
+3. Mở file `.env` bằng Text Editor bất kỳ (như Notepad, VS Code) và điền API Key của nhà cung cấp bạn muốn dùng:
+   ```dotenv
+   VOYAGE_API_KEY=your_api_key_here
+   JINA_API_KEY=your_api_key_here
+   GEMINI_API_KEY=your_api_key_here
+   ```
+4. Tại dòng `FOURTINDEX_EMBEDDING_PROVIDER_CHAIN`, liệt kê các provider bạn muốn ưu tiên sử dụng. fourTindex sẽ tự động chạy theo thứ tự từ trái qua phải, nếu bên nào lỗi hoặc hết quota sẽ tự động chuyển sang bên kế tiếp:
+   ```dotenv
+   # Ví dụ: ưu tiên Voyage, sau đó đến Jina, nếu lỗi hết thì dùng Ollama chạy offline cục bộ
+   FOURTINDEX_EMBEDDING_PROVIDER_CHAIN=voyage,jina,ollama
+   ```
+   *Mặc định nếu bạn không chỉnh sửa gì hoặc không cấu hình API Key, fourTindex sẽ chỉ chạy offline thông qua Ollama.*
+
+### 4. Thiết lập mô hình offline & Tải model
+Quay lại cửa sổ dòng lệnh ở Bước 2, gõ lệnh sau để tự động tải các model AI tìm kiếm về máy:
+```bash
+fourtindex setup-ollama
+```
+*(Quá trình tải có thể mất từ 2-5 phút tùy tốc độ mạng của bạn).*
+
+### 5. Tích hợp vào Cursor
+1. Mở phần mềm **Cursor** lên.
+2. Nhấn phím `Ctrl + ,` (hoặc `Cmd + ,` trên Mac) để mở phần cài đặt, hoặc nhấp vào **icon bánh răng** ở góc trên bên phải màn hình.
+3. Chọn mục **Features** (Tính năng) -> Kéo xuống dưới cùng tìm phần **MCP**.
+4. Bấm vào nút **+ Add New MCP Tool**.
+5. Điền thông tin chính xác như sau:
+   * **Name:** `fourtindex`
+   * **Type:** Chọn `stdio`
+   * **Command:** Nhập:
+     ```bash
+     fourtindex mcp
+     ```
+     *(Nếu không được, điền lệnh dài hơn: `python -m fourtindex mcp`)*
+6. Nhấn **Save**. Nếu thấy hiển thị dấu chấm **màu xanh lá cây** (Active) bên cạnh tên `fourtindex` là bạn đã cài đặt thành công!
+
+Bây giờ bạn có thể chat với AI trong Cursor và yêu cầu: *"Hãy tìm kiếm ngữ nghĩa trong codebase..."* hoặc *"Đọc cấu trúc file..."*, AI sẽ tự động kích hoạt bốnTindex để thực hiện.
+
+---
+
+## ⚡ Quick Start (For Developers)
 
 Clone the repository and initialize the Python virtual environment:
 
