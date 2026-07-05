@@ -28,11 +28,12 @@ database:
 
 ollama:
   host: "http://localhost:11434"
-  embedding_model: "qwen3-embedding:4b"
+  embedding_model: "qwen3-embedding:0.6b"
   llm_model: "qwen2.5-coder:7b"
 
 embedding:
   provider_chain:
+    - "voyage"
     - "ollama"
   batch_size: 64
   batch_max_chars: 250000

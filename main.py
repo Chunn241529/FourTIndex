@@ -4,6 +4,16 @@ import sys
 # Add the project root directory to sys.path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Reconfigure stdout/stderr to UTF-8 to avoid UnicodeEncodeError on Windows
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
+
 import argparse
 from rich.console import Console
 from rich.table import Table
@@ -223,6 +233,13 @@ def cmd_setup_ollama(args):
 def cmd_clean_mem(args):
     from src.setup_ollama import unload_models
     unload_models()
+    print("Successfully unloaded all models from Ollama VRAM/RAM.")
+    try:
+        from src.token_meter import evaluate_latest_session
+        print(evaluate_latest_session())
+    except Exception as e:
+        print(f"Error in token evaluation: {e}")
+
 
 
 def cmd_providers(args):
