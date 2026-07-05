@@ -2,7 +2,7 @@
   <img src="assets/banner.png" alt="fourTindex Banner" width="100%" style="border-radius: 8px;" />
 </p>
 
-<h1 align="center">fourTindex 🚀</h1>
+<h1 align="center">FourTIndex 🚀</h1>
 
 <p align="center">
   <strong>High-fidelity local codebase semantic indexer and Model Context Protocol (MCP) server for local-first AI development.</strong>
@@ -34,7 +34,7 @@
 
 ## 💡 Overview
 
-**fourTindex** is designed for software developers who pair-program with AI agents (like Cursor, Claude Desktop, Copilot, or Antigravity) and want to keep their codebase index 100% local, secure, and lightning-fast. 
+**FourTIndex** is designed for software developers who pair-program with AI agents (like Cursor, Claude Desktop, Copilot, or Antigravity) and want to keep their codebase index 100% local, secure, and lightning-fast. 
 
 By running a local vector database (ChromaDB) and local LLMs (Ollama), `fourTindex` parses your codebase (using AST for Python structures and semantic markdown chunking for skills), indexes it, and exposes it via Model Context Protocol. AI agents can semantically search your codebase, query high-level outlines, and read selected files incrementally—saving token quota and preventing huge context windows from slowing down reasoning.
 
