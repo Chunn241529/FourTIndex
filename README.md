@@ -333,7 +333,7 @@ If **fourTindex** has saved you API costs and helped you work faster, please con
 
 &nbsp;
 
-[![Donate via PayPal](https://img.shields.io/badge/Donate-PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/Chunn241529/5USD)
+[![Donate via PayPal](https://img.shields.io/badge/Donate-PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/TrungVuong24/5USD)
 
 *(Click the button above to donate $5 USD or custom amount via PayPal)*
 
@@ -349,13 +349,13 @@ Bạn có thể mời tác giả một ly cà phê qua chuyển khoản ngân h�
   <tr>
     <td align="center">
       <b>Quét mã VietQR để chuyển khoản</b><br/><br/>
-      <img src="https://img.vietqr.io/image/MB-0123456789-compact2.png?addInfo=Donate%20fourTindex&accountName=TRUNG" width="230px" alt="VietQR Donation" />
+      <img src="https://img.vietqr.io/image/MB-0358570211-compact2.png?addInfo=Donate%20FourTIndex&accountName=Vuong%20Nguyen%20Trung" width="230px" alt="VietQR Donation" />
     </td>
     <td align="center" valign="middle" style="padding: 20px;">
       <b>Thông tin chuyển khoản thủ công:</b><br/><br/>
-      🏦 Ngân hàng: <b>MB Bank (Military Bank)</b><br/>
-      🔢 Số tài khoản: <b>0123456789</b><br/>
-      👤 Tên tài khoản: <b>TRUNG</b><br/>
+      🏦 Ngân hàng: <b>MB Bank</b><br/>
+      🔢 Số tài khoản: <b>0358570211</b><br/>
+      👤 Tên tài khoản: <b>Vuong Nguyen Trung</b><br/>
       📝 Nội dung chuyển khoản: <b>Donate fourTindex</b>
     </td>
   </tr>
