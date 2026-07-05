@@ -157,6 +157,9 @@ ENV/
 env.bak/
 venv.bak/
 
+# fourTindex local state
+.fourtindex/
+
 # Spyder project settings
 .spyderproject
 .spyproject

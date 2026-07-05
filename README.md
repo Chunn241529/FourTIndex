@@ -62,8 +62,9 @@ graph TD
 
 ## ✨ Key Features
 
-* **⚡ 16x Batch Embedding Optimization:** Blazing fast indexing using batch API execution.
-* **🔄 Incremental Sync:** Only re-indexes modified files based on SHA256 hashes. Index updates take less than 1 second.
+* **⚡ Project-wide Batch Embeddings:** Packs chunks from multiple files into provider-aware batches.
+* **🔄 Resumable Incremental Sync:** Checkpoints successful files and only re-indexes changed content.
+* **🌐 Multi-provider Embeddings:** Supports Voyage, Jina, Cloudflare, Pinecone, Gemini, Cohere, NVIDIA, and local Ollama.
 * **🌳 AST-based Python Parsing:** Extracts class definitions, docstrings, method signatures, and decorators as structured logical blocks.
 * **📝 Heading-Aware Markdown Splitting:** Dedicated parser for customization `SKILL.md` folders that extracts YAML frontmatter and splits instructions by H2/H3 headers.
 * **🛡️ Self-Healing Relative Paths:** Automatically resolves relative file path requests by scanning all registered projects in the global registry database.
@@ -71,9 +72,74 @@ graph TD
 
 ---
 
-## ⚡ Quick Start
+## 🔰 Quick Setup Guide
 
-### 1. Installation
+A step-by-step guide to quickly install, configure API keys, and integrate **fourTindex** with **Cursor** or **Claude Desktop**.
+
+### 1. Install Required Core Tools
+* **Step 1: Install Ollama** (Local offline AI runner)
+  1. Visit the official [Ollama.com](https://ollama.com) website and download the application.
+  2. Double-click the downloaded installer to install it (simply click **Install** and wait for completion).
+  3. Ensure Ollama is running in the background (visible in your system tray).
+* **Step 2: Install Python**
+  1. Download the latest Python release from [Python.org](https://www.python.org/downloads/) or install **Python** directly from the **Microsoft Store** (Windows).
+  2. **⚠️ IMPORTANT:** During the initial Python setup window, you **MUST** check the box for **"Add Python to PATH"** at the bottom before clicking the install button.
+
+### 2. Download and Install fourTindex
+1. Download this **fourTindex** repository to your machine (download the `.zip` file and extract it).
+2. Navigate to the extracted repository folder.
+3. **Open a terminal window at this folder:**
+   * **Windows Quick Method:** Click the address bar at the top of the file explorer (which displays the folder path like `D:\project\FourTIndex`), type `cmd` and press **Enter**. A command prompt window will open.
+4. **Install the package:**
+   * Paste the following command and press **Enter**:
+     ```bash
+     pip install -e .
+     ```
+
+### 3. Configure API Keys (.env File)
+If you want to use cloud embedding models for higher speed or quality (e.g., Voyage AI, Jina, Gemini...):
+1. Find the `.env.example` file in the root folder of the project.
+2. Create a copy of this file and rename it to `.env` (or directly rename `.env.example` to `.env`).
+3. Open the `.env` file in any text editor (like Notepad, VS Code) and enter the API keys for the providers you want to use:
+   ```dotenv
+   VOYAGE_API_KEY=your_api_key_here
+   JINA_API_KEY=your_api_key_here
+   GEMINI_API_KEY=your_api_key_here
+   ```
+4. On the `FOURTINDEX_EMBEDDING_PROVIDER_CHAIN` line, list the providers you want to prioritize. fourTindex will check them from left to right; if one fails or runs out of quota, it will automatically fallback to the next:
+   ```dotenv
+   # Example: Prefer Voyage, fallback to Jina, and then fallback to offline Ollama
+   FOURTINDEX_EMBEDDING_PROVIDER_CHAIN=voyage,jina,ollama
+   ```
+   *By default, if you don't configure any keys or edit this file, fourTindex will run offline using Ollama.*
+
+### 4. Pull Offline Models
+Go back to the command prompt from Step 2, and run the following command to automatically download the default semantic search models:
+```bash
+fourtindex setup-ollama
+```
+*(This may take 2-5 minutes depending on your internet connection).*
+
+### 5. Integrate with Cursor
+1. Open **Cursor**.
+2. Press `Ctrl + ,` (or `Cmd + ,` on Mac) to open settings, or click the **gear icon** in the top right corner.
+3. Select **Features** -> scroll down to the bottom and find the **MCP** section.
+4. Click the **+ Add New MCP Tool** button.
+5. Enter the details precisely:
+   * **Name:** `fourtindex`
+   * **Type:** Select `stdio`
+   * **Command:** Enter:
+     ```bash
+     fourtindex mcp
+     ```
+     *(If it doesn't connect, try: `python -m fourtindex mcp`)*
+6. Click **Save**. If you see a **green dot** (Active) next to `fourtindex`, the integration is successful!
+
+You can now chat with the Cursor AI and ask: *"Please search the codebase semantically..."* or *"Get file outline..."*, and it will invoke fourTindex automatically.
+
+---
+
+## ⚡ Quick Start (For Developers)
 
 Clone the repository and initialize the Python virtual environment:
 
@@ -119,6 +185,29 @@ Initialize the vector database for your current project:
 fourtindex index .
 ```
 
+### 4. Optional Cloud Embedding Providers
+
+Copy `.env.example` to `.env`, add only the API keys you intend to use, and explicitly opt in to a provider chain. Source code is never sent to a cloud provider merely because a key exists.
+
+```dotenv
+FOURTINDEX_EMBEDDING_PROVIDER_CHAIN=voyage,jina,cloudflare,pinecone,gemini,cohere,nvidia,ollama
+```
+
+Inspect configuration without revealing credentials:
+
+```bash
+fourtindex providers
+fourtindex providers --check
+```
+
+Each project pins its provider, model, dimension, and query/document modes. Changing providers requires a full rebuild because embedding spaces are incompatible:
+
+```bash
+fourtindex index . --rebuild --embedding-provider ollama
+```
+
+Free allocations change over time. As verified on 2026-07-05, Voyage provides 200M initial tokens for supported models, Jina provides 10M tokens to new accounts, Pinecone Starter provides 5M tokens per model each month, Cloudflare provides 10,000 Neurons daily, and Gemini, Cohere, and NVIDIA provide limited free or evaluation access. Confirm current provider terms before enabling cloud processing.
+
 ---
 
 ## 💾 VRAM & RAM Memory Optimization
@@ -135,7 +224,8 @@ To free up your GPU memory instantly after running a large indexing job or vecto
 
 | Command | Arguments | Description |
 | :--- | :--- | :--- |
-| `fourtindex index` | `[path]` (default: `.`) | Indexes or re-indexes the target codebase. Uses incremental sync (< 1s). |
+| `fourtindex index` | `[path]` plus provider/rebuild options | Indexes or resumes the target codebase using its pinned embedding profile. |
+| `fourtindex providers` | `[--check]` | Lists configured providers without exposing API keys. |
 | `fourtindex search` | `"<query>"` `[--limit N]` `[--file-ext EXT]` | Performs semantic search. Filter by extension (e.g. `--file-ext .py`). |
 | `fourtindex query` | `"<question>"` `[--limit N]` | Asks your local Ollama LLM a question about the codebase. |
 | `fourtindex index-skill`| `<path_to_skill>` | Indexes custom agent guidelines (`SKILL.md`) using H2/H3 headers. |

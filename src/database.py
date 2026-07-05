@@ -30,6 +30,120 @@ class Database:
             metadata={"hnsw:space": "cosine"}
         )
 
+    @staticmethod
+    def _project_collection_names(project_id: str, store_id: str) -> tuple[str, str]:
+        suffix = f"{project_id}_{store_id}".replace("-", "_")
+        return f"code_{suffix}", f"outline_{suffix}"
+
+    def get_project_collections(self, project_id: str, store_id: str):
+        code_name, outline_name = self._project_collection_names(project_id, store_id)
+        code = self.client.get_or_create_collection(
+            name=code_name, metadata={"hnsw:space": "cosine"}
+        )
+        outlines = self.client.get_or_create_collection(
+            name=outline_name, metadata={"hnsw:space": "cosine"}
+        )
+        return code, outlines
+
+    def delete_project_store(self, project_id: str, store_id: str) -> None:
+        for name in self._project_collection_names(project_id, store_id):
+            try:
+                self.client.delete_collection(name)
+            except Exception:
+                pass
+
+    def delete_legacy_project(self, project_name: str) -> None:
+        where = {"project_name": project_name}
+        self.code_chunks.delete(where=where)
+        self.file_outlines.delete(where=where)
+
+    def upsert_project_records(
+        self,
+        project_id: str,
+        store_id: str,
+        code_records: list[dict],
+        outline_records: list[dict],
+    ) -> None:
+        code, outlines = self.get_project_collections(project_id, store_id)
+        self._upsert_records(code, code_records)
+        self._upsert_records(outlines, outline_records)
+
+    def _upsert_records(self, collection, records: list[dict]) -> None:
+        if not records:
+            return
+        get_limit = getattr(self.client, "get_max_batch_size", None)
+        batch_limit = get_limit() if callable(get_limit) else 5000
+        for start in range(0, len(records), batch_limit):
+            batch = records[start : start + batch_limit]
+            collection.upsert(
+                ids=[item["id"] for item in batch],
+                embeddings=[item["embedding"] for item in batch],
+                documents=[item["document"] for item in batch],
+                metadatas=[item["metadata"] for item in batch],
+            )
+
+    def delete_project_ids(
+        self,
+        project_id: str,
+        store_id: str,
+        code_ids: list[str] | None = None,
+        outline_ids: list[str] | None = None,
+    ) -> None:
+        code, outlines = self.get_project_collections(project_id, store_id)
+        if code_ids:
+            code.delete(ids=code_ids)
+        if outline_ids:
+            outlines.delete(ids=outline_ids)
+
+    def search_project_code(
+        self,
+        project_id: str,
+        store_id: str,
+        query_embedding: list[float],
+        limit: int = 5,
+        file_ext: str | None = None,
+    ) -> list[dict]:
+        code, _ = self.get_project_collections(project_id, store_id)
+        if code.count() == 0:
+            return []
+        where = {"file_ext": file_ext} if file_ext else None
+        results = code.query(
+            query_embeddings=[query_embedding],
+            n_results=min(limit, code.count()),
+            where=where,
+        )
+        return self._format_query_results(results)
+
+    @staticmethod
+    def _format_query_results(results: dict) -> list[dict]:
+        if not results.get("documents") or not results["documents"][0]:
+            return []
+        documents = results["documents"][0]
+        metadatas = results["metadatas"][0]
+        identifiers = results["ids"][0]
+        distances = results.get("distances", [[0.0] * len(documents)])[0]
+        return [
+            {
+                "id": identifiers[index],
+                "content": document,
+                "metadata": metadatas[index],
+                "score": 1.0 - distances[index],
+            }
+            for index, document in enumerate(documents)
+        ]
+
+    def get_project_outline(self, project_id: str, store_id: str, file_path: str) -> str | None:
+        _, outlines = self.get_project_collections(project_id, store_id)
+        result = outlines.get(where={"file_path": file_path}, include=["documents"])
+        documents = result.get("documents") or []
+        return documents[0] if documents else None
+
+    def get_project_symbol(self, project_id: str, store_id: str, symbol_name: str) -> str | None:
+        code, _ = self.get_project_collections(project_id, store_id)
+        result = code.get(where={"symbol_name": symbol_name}, include=["documents"])
+        documents = result.get("documents") or []
+        return documents[0] if documents else None
+
     def delete_file_entries(self, relative_path: str, project_name: str):
         """Deletes all chunks and outline belonging to a specific file in a project."""
         # Deleting old entries prevents orphaned chunks when code is modified

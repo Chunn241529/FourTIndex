@@ -14,7 +14,11 @@ setup(
         "mcp>=1.0.0",
         "pyyaml>=6.0.1",
         "rich>=13.7.1",
+        "httpx>=0.27.0",
+        "pathspec>=0.12.1",
+        "python-dotenv>=1.0.1",
     ],
+    extras_require={"dev": ["pytest>=8.0", "pytest-cov>=5.0"]},
     entry_points={
         "console_scripts": [
             "fourtindex=main:main",
