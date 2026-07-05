@@ -11,7 +11,7 @@ from src.indexing_service import IndexOptions, IndexingService, load_project_con
 
 # Configure logging to go to stderr so it doesn't corrupt stdout stdio transport
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
-logger = logging.getLogger("fourTindexMCP")
+logger = logging.getLogger("FourTIndexMCP")
 
 # Load configuration and initialize core modules
 config = Config(config_path="config.yaml")
@@ -19,10 +19,10 @@ embedder = Embedder(config)
 db = Database(config)
 indexer = Indexer(config)
 
-mcp = FastMCP("fourTindex")
+mcp = FastMCP("FourTIndex")
 
 @mcp.tool()
-def search_codebase(query: str, project_name: str = "fourTindex", limit: int = 5, file_ext: str = None) -> str:
+def search_codebase(query: str, project_name: str = "FourTIndex", limit: int = 5, file_ext: str = None) -> str:
     """Searches the indexed codebase semantically for relevant code chunks.
     
     Args:
@@ -64,7 +64,7 @@ def search_codebase(query: str, project_name: str = "fourTindex", limit: int = 5
         return f"Error during search: {str(e)}"
 
 @mcp.tool()
-def get_file_outline(file_path: str, project_name: str = "fourTindex") -> str:
+def get_file_outline(file_path: str, project_name: str = "FourTIndex") -> str:
     """Retrieves the high-level class and function outline structure of a specific file.
     
     Args:
@@ -83,7 +83,7 @@ def get_file_outline(file_path: str, project_name: str = "fourTindex") -> str:
         return f"Error: {str(e)}"
 
 @mcp.tool()
-def get_symbol_definition(symbol_name: str, project_name: str = "fourTindex") -> str:
+def get_symbol_definition(symbol_name: str, project_name: str = "FourTIndex") -> str:
     """Finds the detailed code definition of a class or function by its name (e.g., 'Config.project_name').
     
     Args:
@@ -102,7 +102,7 @@ def get_symbol_definition(symbol_name: str, project_name: str = "fourTindex") ->
         return f"Error: {str(e)}"
 
 @mcp.tool()
-def read_code_lines(file_path: str, start_line: int, end_line: int, project_name: str = "fourTindex") -> str:
+def read_code_lines(file_path: str, start_line: int, end_line: int, project_name: str = "FourTIndex") -> str:
     """Reads a specific range of lines from a file in the workspace.
     
     Args:
@@ -171,7 +171,7 @@ def read_code_lines(file_path: str, start_line: int, end_line: int, project_name
         return f"Error: {str(e)}"
 
 @mcp.tool()
-def save_session_summary(session_id: str, summary_text: str, project_name: str = "fourTindex") -> str:
+def save_session_summary(session_id: str, summary_text: str, project_name: str = "FourTIndex") -> str:
     """Saves a summary of the current session's design decisions and changes into memory.
     
     Args:
@@ -201,7 +201,7 @@ def save_session_summary(session_id: str, summary_text: str, project_name: str =
 @mcp.tool()
 def index_project(
     project_path: str = ".",
-    project_name: str = "fourTindex",
+    project_name: str = "FourTIndex",
     embedding_provider: str = "auto",
     rebuild: bool = False,
     force: bool = False,
@@ -233,7 +233,7 @@ def index_project(
         return f"Error indexing project: {str(e)}"
 
 @mcp.tool()
-def index_skill(skill_path: str, project_name: str = "fourTindex") -> str:
+def index_skill(skill_path: str, project_name: str = "FourTIndex") -> str:
     """Scans and indexes a specific customization skill (SKILL.md).
     
     Args:
@@ -322,7 +322,7 @@ def index_skill(skill_path: str, project_name: str = "fourTindex") -> str:
         return f"Error: {str(e)}"
 
 @mcp.tool()
-def search_skills(query: str, project_name: str = "fourTindex", limit: int = 3) -> str:
+def search_skills(query: str, project_name: str = "FourTIndex", limit: int = 3) -> str:
     """Searches the indexed customization skills semantically.
     
     Args:
@@ -355,7 +355,7 @@ def search_skills(query: str, project_name: str = "fourTindex", limit: int = 3) 
         return f"Error: {str(e)}"
 
 @mcp.tool()
-def get_skill_outline(skill_name: str, project_name: str = "fourTindex") -> str:
+def get_skill_outline(skill_name: str, project_name: str = "FourTIndex") -> str:
     """Gets the table of contents (list of headings) for a specific indexed skill.
     
     Args:
@@ -388,7 +388,7 @@ def get_skill_outline(skill_name: str, project_name: str = "fourTindex") -> str:
         return f"Error: {str(e)}"
 
 @mcp.tool()
-def read_skill_section(skill_name: str, heading: str, project_name: str = "fourTindex") -> str:
+def read_skill_section(skill_name: str, heading: str, project_name: str = "FourTIndex") -> str:
     """Reads a specific markdown section under a heading for a registered skill.
     
     Args:

@@ -62,7 +62,7 @@ class Config:
 
     @property
     def project_name(self) -> str:
-        return self.data.get("project", {}).get("name", "fourTindex")
+        return self.data.get("project", {}).get("name", "FourTIndex")
 
     @property
     def exclude_dirs(self) -> list:

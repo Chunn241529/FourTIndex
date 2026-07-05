@@ -1,39 +1,39 @@
 ---
-name: fourtindex
-description: Guidelines on using the local codebase indexer and MCP server fourTindex to retrieve code context, perform semantic search, and manage project indices to save API quota.
+name: FourTIndex
+description: Guidelines on using the local codebase indexer and MCP server FourTIndex to retrieve code context, perform semantic search, and manage project indices to save API quota.
 ---
 
-# Skill: using fourTindex Local Context Retrieval
+# Skill: using FourTIndex Local Context Retrieval
 
-This workspace is indexed locally using **fourTindex**, a high-fidelity local codebase indexer and Model Context Protocol (MCP) server. 
+This workspace is indexed locally using **FourTIndex**, a high-fidelity local codebase indexer and Model Context Protocol (MCP) server. 
 
-You should use the tools provided by fourTindex to gather codebase context and perform code searches instead of dumping or reading entire folders/files. This preserves your context window and saves API token quota.
+You should use the tools provided by FourTIndex to gather codebase context and perform code searches instead of dumping or reading entire folders/files. This preserves your context window and saves API token quota.
 
 ## MCP Tools API & Type Signatures
 
-If you are running in an MCP-enabled environment, the following tools are registered under the name `fourtindex`. Note the parameter types:
+If you are running in an MCP-enabled environment, the following tools are registered under the name `FourTIndex`. Note the parameter types:
 
-1. `search_codebase(query: str, project_name: str = "fourTindex", limit: int = 5, file_ext: str = None) -> str`
+1. `search_codebase(query: str, project_name: str = "FourTIndex", limit: int = 5, file_ext: str = None) -> str`
    - Performs semantic vector search on code chunks. Filter by file extension (e.g. `".py"`, `"ts"`) to exclude noise.
-2. `get_file_outline(file_path: str, project_name: str = "fourTindex") -> str`
+2. `get_file_outline(file_path: str, project_name: str = "FourTIndex") -> str`
    - Retrieves class outlines, function names, and import structures without full implementation code. Use this to understand file structure first.
-3. `get_symbol_definition(symbol_name: str, project_name: str = "fourTindex") -> str`
+3. `get_symbol_definition(symbol_name: str, project_name: str = "FourTIndex") -> str`
    - Retrieves the exact class or function implementation.
    - **Crucial Behavior**: If `symbol_name` is a **Function**, it returns the full body. If it is a **Class**, it returns the outline (method signatures only). To read specific methods, query `ClassName.method_name`.
-4. `read_code_lines(file_path: str, start_line: int, end_line: int, project_name: str = "fourTindex") -> str`
+4. `read_code_lines(file_path: str, start_line: int, end_line: int, project_name: str = "FourTIndex") -> str`
    - Reads exact physical lines (1-indexed, inclusive). It automatically resolves relative paths by looking up the absolute path of the project in the registry.
-5. `save_session_summary(session_id: str, summary_text: str, project_name: str = "fourTindex") -> str`
+5. `save_session_summary(session_id: str, summary_text: str, project_name: str = "FourTIndex") -> str`
    - Stores design decisions or change logs into the session memories index for future query references.
-6. `index_project(project_path: str = ".", project_name: str = "fourTindex") -> str`
+6. `index_project(project_path: str = ".", project_name: str = "FourTIndex") -> str`
    - Forces a re-index of the codebase. It uses **16x Batch Embedding Optimization** for extremely fast index creation and only indexes modified files (Incremental Sync takes < 1 second).
    - Unnecessary files and directories (like `.git`, `node_modules`, `.fourtindex`, `*.egg-info`, `.venv`) are automatically excluded.
-7. `index_skill(skill_path: str, project_name: str = "fourTindex") -> str`
+7. `index_skill(skill_path: str, project_name: str = "FourTIndex") -> str`
    - Indexes a specific skill's `SKILL.md` file using heading-based splitting and YAML frontmatter parsing.
-8. `search_skills(query: str, project_name: str = "fourTindex", limit: int = 3) -> str`
+8. `search_skills(query: str, project_name: str = "FourTIndex", limit: int = 3) -> str`
    - Performs semantic vector search on indexed skill sections.
-9. `get_skill_outline(skill_name: str, project_name: str = "fourTindex") -> str`
+9. `get_skill_outline(skill_name: str, project_name: str = "FourTIndex") -> str`
    - Retrieves the list of headings (sections) available for a specific skill.
-10. `read_skill_section(skill_name: str, heading: str, project_name: str = "fourTindex") -> str`
+10. `read_skill_section(skill_name: str, heading: str, project_name: str = "FourTIndex") -> str`
     - Retrieves the exact markdown section content under a specific heading for a registered skill.
 11. `clean_mem() -> str`
     - Unloads all configured models from local VRAM and system memory immediately. Use this to free up GPU and system resources between tasks.
@@ -42,7 +42,7 @@ If you are running in an MCP-enabled environment, the following tools are regist
 
 The Vector Database contains two primary collections: `code_chunks` (fine-grained code chunks) and `file_outlines` (high-level structure). The metadata for each document contains the following fields:
 
-* **`project_name`** (*str*): The name of the project (e.g., `"fourTindex"`).
+* **`project_name`** (*str*): The name of the project (e.g., `"FourTIndex"`).
 * **`file_path`** (*str*): The relative path of the file from the project root.
 * **`file_name`** (*str*): The name of the file with extension.
 * **`file_ext`** (*str*): The lowercase file extension (e.g., `".py"`, `".yaml"`, `".md"`).
@@ -58,7 +58,7 @@ The Vector Database contains two primary collections: `code_chunks` (fine-graine
 
 ## Command Line Fallback (Cross-Platform)
 
-If MCP tools are not active, you can invoke fourTindex via CLI using the local Python environment.
+If MCP tools are not active, you can invoke FourTIndex via CLI using the local Python environment.
 
 ### Windows:
 * Indexing Codebase: `fourtindex index .`
