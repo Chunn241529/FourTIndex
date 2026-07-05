@@ -320,3 +320,44 @@ This codebase is indexed locally via **fourTindex** (an MCP server & local vecto
 5. **Free memory when done:** Call `clean_mem()` tool (or run CLI `fourtindex clean-mem`) when you are done with heavy vector searches or indexing, to release VRAM and RAM immediately.
 6. **Save design history:** Call `save_session_summary` before concluding a task to log your design decisions.
 ```
+
+---
+
+## 💖 Support the Project
+
+If **fourTindex** has saved you API costs and helped you work faster, please consider supporting the project's development!
+
+### 🌍 International Sponsors
+
+<iframe src="https://github.com/sponsors/Chunn241529/button" title="Sponsor Chunn241529" height="32" width="114" style="border: 0; border-radius: 6px;"></iframe>
+
+&nbsp;
+
+[![Donate via PayPal](https://img.shields.io/badge/Donate-PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/Chunn241529/5USD)
+
+*(Click the button above to donate $5 USD or custom amount via PayPal)*
+
+---
+
+### 🇻🇳 Dành cho Lập trình viên Việt Nam (Vietnamese Backers)
+
+Bạn có thể mời tác giả một ly cà phê qua chuyển khoản ngân hàng nhanh (VietQR) bằng cách quét mã QR dưới đây:
+
+> **Lưu ý:** Vui lòng thay thế `<BANK_ID>` (ví dụ: `MB`, `VCB`), `<ACCOUNT_NO>` (Số tài khoản) và `<ACCOUNT_NAME>` (Tên tài khoản) trong liên kết dưới đây bằng thông tin tài khoản ngân hàng của bạn trước khi công bố.
+
+<table>
+  <tr>
+    <td align="center">
+      <b>Quét mã VietQR để chuyển khoản</b><br/><br/>
+      <img src="https://img.vietqr.io/image/MB-0123456789-compact2.png?addInfo=Donate%20fourTindex&accountName=TRUNG" width="230px" alt="VietQR Donation" />
+    </td>
+    <td align="center" valign="middle" style="padding: 20px;">
+      <b>Thông tin chuyển khoản thủ công:</b><br/><br/>
+      🏦 Ngân hàng: <b>MB Bank (Military Bank)</b><br/>
+      🔢 Số tài khoản: <b>0123456789</b><br/>
+      👤 Tên tài khoản: <b>TRUNG</b><br/>
+      📝 Nội dung chuyển khoản: <b>Donate fourTindex</b>
+    </td>
+  </tr>
+</table>
+
