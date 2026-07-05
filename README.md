@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.png" alt="FourTIndex Banner" width="100%" style="border-radius: 8px;" />
+  <img src="assets/banner.png" alt="FourTIndex Banner" width="650px" style="border-radius: 8px;" />
 </p>
 
 <h1 align="center">FourTIndex 🚀</h1>
