@@ -38,7 +38,7 @@
 
 ## 💡 Overview
 
-**FourTIndex** is designed for software developers who pair-program with AI agents (like Cursor, Claude Desktop, Copilot, or Antigravity) and want to keep their codebase index 100% local, secure, and lightning-fast. 
+**FourTIndex** is designed for software developers who pair-program with AI agents (like Cursor, Claude Desktop, Copilot, or Antigravity) and want to keep their codebase index 100% local, secure, and lightning-fast.
 
 By running a local vector database (ChromaDB) and local LLMs (Ollama), `FourTIndex` parses your codebase (using tree-sitter AST nodes for structural parsing and semantic markdown chunking for skills), indexes it, and exposes it via Model Context Protocol. AI agents can semantically search your codebase, query high-level outlines, and read selected files incrementally—saving token quota and preventing huge context windows from slowing down reasoning.
 
@@ -48,73 +48,64 @@ By running a local vector database (ChromaDB) and local LLMs (Ollama), `FourTInd
 
 ```mermaid
 graph TD
-    %% 1. Clients
-    Agent[AI Coding Agent <br/> Codex / Claude / Antigravity]
-    
-    %% 2. MCP Server
-    subgraph Server ["FourTIndex MCP Server"]
-        M_Server[mcp_server.py]
-        
-        subgraph Core ["1. Semantic Code Indexer"]
-            DB_Chroma[(ChromaDB <br/> SQLite Hash Store)]
-            Ollama[Local Ollama <br/> Embeddings & LLM]
-            TS_Parser[Tree-sitter CST Walker]
-        end
-        
-        subgraph Registry ["2. Project registry"]
-            DB_Reg[(SQLite <br/> registry.db)]
-        end
-        
-        subgraph Meter ["3. Built-in AgentTokenMeter"]
-            Log_Read[Log File Parsers]
-            DB_Meter[(SQLite <br/> meter.db)]
-        end
-    end
-    
-    %% 3. Log files (External to server, written by agents)
-    Agent_Logs[Agent Log Files <br/> transcript_full.jsonl / .log]
-    
-    %% Connections for Indexing
-    Agent -- "JSON-RPC via stdio" --> M_Server
-    M_Server -->|"Semantic Search / Outline"| DB_Chroma
-    M_Server -->|"Generate Embeddings"| Ollama
-    M_Server -->|"Resolve Roadmaps"| DB_Reg
-    
-    %% Connections for Token Meter
-    Agent -->|"Writes Conversation History"| Agent_Logs
-    M_Server -->|"clean_mem() triggered"| Log_Read
-    Log_Read -->|"Read & Parse Logs"| Agent_Logs
-    Log_Read -->|"Log usage & pricing"| DB_Meter
-    Log_Read -->|"Return Token Report"| M_Server
-    
-    style Agent fill:#4F46E5,stroke:#312E81,stroke-width:2px,color:#fff
-    style Server fill:#0F172A,stroke:#334155,stroke-width:2px,color:#fff
-    style Core fill:#1E293B,stroke:#475569,stroke-width:1px,color:#fff
-    style Registry fill:#7c2d12,stroke:#9a3412,stroke-width:1px,color:#fff
-    style Meter fill:#064E3B,stroke:#065F46,stroke-width:1px,color:#fff
-    style Agent_Logs fill:#0891B2,stroke:#155E75,stroke-width:2px,color:#fff
+  Agent[AI Coding Agent <br/> Cursor / Claude / Antigravity]
+  M_Server[mcp_server.py]
+
+  subgraph Server ["FourTIndex MCP Server"]
+      subgraph Core ["1. Semantic & Structural Indexer"]
+          TS_Parser[Tree-sitter CST Walker]
+          DB_Chroma[(ChromaDB <br/> Vector Store)]
+          Ollama[Local Ollama <br/> Embeddings]
+      end
+
+      subgraph Registry ["2. Project Topology Hub"]
+          Map_Engine[Structure Mapper]
+          DB_Reg[(SQLite <br/> registry.db)]
+      end
+
+      subgraph Meter ["3. AgentTokenMeter"]
+          Log_Read[Log File Parsers]
+          DB_Meter[(SQLite <br/> meter.db)]
+      end
+  end
+
+  Agent_Logs[Agent Log Files <br/> transcript.jsonl / .log]
+
+  %% Flow
+  Agent -- "1. JSON-RPC" --> M_Server
+  M_Server -->|"2. Read Source"| TS_Parser
+
+  %% Split Data Flow
+  TS_Parser -->|"3a. Code Chunks"| Ollama --> DB_Chroma
+  TS_Parser -->|"3b. Structural Nodes"| Map_Engine --> DB_Reg
+
+  %% Token Flow
+  Agent -->|"Writes"| Agent_Logs
+  M_Server -->|"clean_mem()"| Log_Read --> Agent_Logs
+  Log_Read --> DB_Meter
 ```
 
 ---
 
 ## ✨ Key Features
 
-* **⚡ Project-wide Batch Embeddings:** Packs chunks from multiple files into provider-aware batches.
-* **🔄 Resumable Incremental Sync:** Checkpoints successful files and only re-indexes changed content.
-* **🔒 Local Embeddings:** Keeps source code local with Ollama-only embeddings.
-* **🌲 Omni-Language AST Walking:** Standardized tree-sitter walker that extracts classes, methods, functions, and scoping across multiple target languages.
-* **🗺️ Automatic Project Roadmaps:** Traverses directory structures, prunes ignored folders, detects project framework signatures, and stores roadmaps inside a central SQLite registry database.
-* **📝 Heading-Aware Markdown Splitting:** Dedicated parser for customization `SKILL.md` folders that extracts YAML frontmatter and splits instructions by H2/H3 headers.
-* **🛡️ Self-Healing Relative Paths:** Automatically resolves relative file path requests by scanning all registered projects in the global registry database.
-* **🍃 VRAM/RAM GPU Cleaner & Token Counter:** Unloads heavy models from local GPU memory and prints a token usage & cost summary automatically when done.
+- **⚡ Project-wide Batch Embeddings:** Packs chunks from multiple files into provider-aware batches.
+- **🔄 Resumable Incremental Sync:** Checkpoints successful files and only re-indexes changed content.
+- **🔒 Local Embeddings:** Keeps source code local with Ollama-only embeddings.
+- **🌲 Omni-Language AST Walking:** Standardized tree-sitter walker that extracts classes, methods, functions, and scoping across multiple target languages.
+- **🗺️ Automatic Project Roadmaps:** Traverses directory structures, prunes ignored folders, detects project framework signatures, and stores roadmaps inside a central SQLite registry database.
+- **📝 Heading-Aware Markdown Splitting:** Dedicated parser for customization `SKILL.md` folders that extracts YAML frontmatter and splits instructions by H2/H3 headers.
+- **🛡️ Self-Healing Relative Paths:** Automatically resolves relative file path requests by scanning all registered projects in the global registry database.
+- **🍃 VRAM/RAM GPU Cleaner & Token Counter:** Unloads heavy models from local GPU memory and prints a token usage & cost summary automatically when done.
 
 ---
 
 ## 🌲 Omni-Language Tree-sitter Parser
 
 FourTIndex leverages **Tree-sitter** for structural code analysis. Instead of relying on rigid, language-specific regex or queries, our CST walker evaluates concrete syntax tree structures dynamically:
-* **Standard Web/Fullstack**: `.py` (Python), `.js` (JavaScript), `.ts` (TypeScript), `.jsx` (React JS), `.tsx` (React TS), `.rs` (Rust), `.go` (Go), `.java` (Java), `.kt` (Kotlin), `.swift` (Swift).
-* **Game Engines**: `.cs` (C# for Unity/Godot), `.cpp`/`.h` (C++ for Unreal/Cocos), `.gd` (GDScript for Godot), `.lua` (Lua for Roblox).
+
+- **Standard Web/Fullstack**: `.py` (Python), `.js` (JavaScript), `.ts` (TypeScript), `.jsx` (React JS), `.tsx` (React TS), `.rs` (Rust), `.go` (Go), `.java` (Java), `.kt` (Kotlin), `.swift` (Swift).
+- **Game Engines**: `.cs` (C# for Unity/Godot), `.cpp`/`.h` (C++ for Unreal/Cocos), `.gd` (GDScript for Godot), `.lua` (Lua for Roblox).
 
 > [!NOTE]
 > **Robust Error Recovery**: When parsing files mid-edit, the walker isolates syntax error nodes (`ERROR`) locally, continuing to traverse other subtrees safely.
@@ -125,6 +116,7 @@ FourTIndex leverages **Tree-sitter** for structural code analysis. Instead of re
 ## 🗺️ Automatic Project Structure Mapping
 
 During codebase indexing, the directory traversal loop captures a complete structural roadmap:
+
 1. **Directory Tree Topology**: Builds a clean nested JSON model representing folders and files (explicitly respecting `.gitignore` and `exclude_dirs`).
 2. **Framework Signature Detection**: Scans for signature architectural anchor files to identify project frameworks:
    - `.csproj` $\rightarrow$ Unity / C#
@@ -139,6 +131,7 @@ During codebase indexing, the directory traversal loop captures a complete struc
 ## ⚡ Quick Start (For Developers)
 
 ### 1. Initialize Python Environment
+
 ```bash
 # Clone the repository
 git clone https://github.com/Chunn241529/FourTIndex.git
@@ -156,18 +149,23 @@ pip install -e .
 ```
 
 ### 2. Auto-setup Ollama & Models
+
 Make sure Ollama is running locally, then pull the required models:
+
 ```bash
 fourtindex setup-ollama
 ```
 
 ### 3. Verify Ollama
+
 Verify the local embedding service:
+
 ```bash
 fourtindex providers --check
 ```
 
 ### 4. Index Project Codebase
+
 ```bash
 # Index the current directory
 fourtindex index .
@@ -178,19 +176,23 @@ fourtindex index .
 ## 💾 VRAM cleaner & Built-in Token Counter
 
 ### 1. VRAM Memory Cleaner
+
 To free up GPU memory instantly after running a large indexing job or vector search session, run:
-* **CLI command**: `fourtindex clean-mem`
-* **Agent tool**: Ask your AI coding agent to invoke the `clean_mem()` MCP tool.
+
+- **CLI command**: `fourtindex clean-mem`
+- **Agent tool**: Ask your AI coding agent to invoke the `clean_mem()` MCP tool.
 
 ### 2. Built-in Agent Token Counter (AgentTokenMeter)
+
 FourTIndex monitors coding-agent token usage completely offline. Whenever it evaluates session logs (via `clean_mem`, dashboard requests, or MCP queries), adapter-based discovery compares Codex, Claude Code, and Antigravity logs, selects the active session, and prints/saves its token report.
 
-* **Dedicated MCP Tool**: Ask your AI coding agent to call **`get_token_report()`** at any time during a session to fetch the pricing report.
-* **Persistent Files**: The report is saved automatically:
+- **Dedicated MCP Tool**: Ask your AI coding agent to call **`get_token_report()`** at any time during a session to fetch the pricing report.
+- **Persistent Files**: The report is saved automatically:
   - **Globally**: `~/.fourtindex/token_report.txt`
   - **Locally**: `.fourtindex/token_report.txt` in the project root folder (if it exists).
 
 #### Output Example:
+
 ```text
 ============================================================
                 BÁO CÁO ĐÁNH GIÁ SỬ DỤNG TOKEN
@@ -214,10 +216,13 @@ ID Hội thoại:        d34fc9ef-1f1b-4a28-81b8-69c4d77435a7
   - Tổng chi phí:      $0.793170 USD
 ============================================================
 ```
-*Note: Usage data is recorded in SQLite database `~/.agent_token_meter/meter.db`.*
+
+_Note: Usage data is recorded in SQLite database `~/.agent_token_meter/meter.db`._
 
 #### Live-Watch Terminal CLI:
+
 Run a live-updating token counter in a separate console window:
+
 ```bash
 cd scratch/agent-token-meter
 python cli.py watch
@@ -229,13 +234,15 @@ python cli.py watch
 
 To verify parallel indexing speedups and roadmap registration, we run a multi-language performance benchmark containing C#, TS, Lua, C++, Python, and Swift source files:
 
-| Metric / Scenario | ❌ Sequential Indexing <br>*(workers=1, batch-size=1)* | ✔ Parallel & Batched Indexing <br>*(workers=4, batch-size=32)* | 🚀 Efficiency Gain |
-| :--- | :--- | :--- | :--- |
-| **Duration (50 Files)** | **9.97 seconds** | **2.94 seconds** | **3.39x faster** |
-| **Frameworks Profile** | - | Godot, Roblox (Lua) | **100% Detected** |
+| Metric / Scenario       | ❌ Sequential Indexing <br>_(workers=1, batch-size=1)_ | ✔ Parallel & Batched Indexing <br>_(workers=4, batch-size=32)_ | 🚀 Efficiency Gain |
+| :---------------------- | :----------------------------------------------------- | :------------------------------------------------------------- | :----------------- |
+| **Duration (50 Files)** | **9.97 seconds**                                       | **2.94 seconds**                                               | **3.39x faster**   |
+| **Frameworks Profile**  | -                                                      | Godot, Roblox (Lua)                                            | **100% Detected**  |
 
 #### Run the Benchmark Locally:
+
 You can run the live benchmark simulation script on your machine to verify these metrics:
+
 ```bash
 python benchmarks/run_benchmark.py
 ```
@@ -244,42 +251,43 @@ python benchmarks/run_benchmark.py
 
 ## 🛠️ CLI Command Cheatsheet
 
-| Command | Arguments | Description |
-| :--- | :--- | :--- |
-| `fourtindex index` | `[path]` | Indexes or resumes indexing the target codebase. |
-| `fourtindex providers` | `[--check]` | Shows the local Ollama embedding status. |
-| `fourtindex search` | `"<query>"` `[--file-ext EXT]` | Performs semantic codebase search. |
-| `fourtindex query` | `"<question>"` | Queries the local LLM about the codebase. |
-| `fourtindex index-skill`| `<path_to_skill>` | Indexes custom agent guidelines (`SKILL.md`). |
-| `fourtindex search-skills`| `"<query>"` | Semantically searches indexed customization skills. |
-| `fourtindex setup-ollama`| *None* | Verifies Ollama connection and pulls default models. |
-| `fourtindex clean-mem`  | *None* | Unloads models and prints token evaluation report. |
-| `fourtindex mcp`        | *None* | Launches the stdio MCP server for client integrations. |
+| Command                    | Arguments                      | Description                                            |
+| :------------------------- | :----------------------------- | :----------------------------------------------------- |
+| `fourtindex index`         | `[path]`                       | Indexes or resumes indexing the target codebase.       |
+| `fourtindex providers`     | `[--check]`                    | Shows the local Ollama embedding status.               |
+| `fourtindex search`        | `"<query>"` `[--file-ext EXT]` | Performs semantic codebase search.                     |
+| `fourtindex query`         | `"<question>"`                 | Queries the local LLM about the codebase.              |
+| `fourtindex index-skill`   | `<path_to_skill>`              | Indexes custom agent guidelines (`SKILL.md`).          |
+| `fourtindex search-skills` | `"<query>"`                    | Semantically searches indexed customization skills.    |
+| `fourtindex setup-ollama`  | _None_                         | Verifies Ollama connection and pulls default models.   |
+| `fourtindex clean-mem`     | _None_                         | Unloads models and prints token evaluation report.     |
+| `fourtindex mcp`           | _None_                         | Launches the stdio MCP server for client integrations. |
 
 ---
 
 ## 🧩 MCP Client Integration
 
 ### Cursor Integration
+
 Go to `Cursor Settings > Features > MCP`, add a new tool:
-* **Name**: `fourtindex`
-* **Type**: `stdio`
-* **Command**: `/path/to/FourTIndex/.venv/Scripts/python.exe /path/to/FourTIndex/main.py mcp`
+
+- **Name**: `fourtindex`
+- **Type**: `stdio`
+- **Command**: `/path/to/FourTIndex/.venv/Scripts/python.exe /path/to/FourTIndex/main.py mcp`
 
 > [!IMPORTANT]
 > **Windows/macOS Path Note**: Replace `/path/to/FourTIndex` with the actual absolute path to your cloned `FourTIndex` folder (e.g. `C:/Users/username/FourTIndex`). Use forward slashes `/` even on Windows to prevent string escaping issues.
 
 ### Claude Desktop Integration
+
 Add the following to `%APPDATA%\Claude\claude_desktop_config.json` on Windows (or `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
 ```json
 {
   "mcpServers": {
     "fourtindex": {
       "command": "/path/to/FourTIndex/.venv/Scripts/python.exe",
-      "args": [
-        "/path/to/FourTIndex/main.py",
-        "mcp"
-      ],
+      "args": ["/path/to/FourTIndex/main.py", "mcp"],
       "env": {
         "PYTHONPATH": "/path/to/FourTIndex"
       }
@@ -292,29 +300,29 @@ Add the following to `%APPDATA%\Claude\claude_desktop_config.json` on Windows (o
 
 ## 📖 MCP Tool Specifications
 
-* **`search_codebase(query: str, project_name: str, limit: int, file_ext: str, language: str) -> str`**
+- **`search_codebase(query: str, project_name: str, limit: int, file_ext: str, language: str) -> str`**
   - Semantically searches the codebase. Filters by extension and language dynamically.
-* **`get_file_outline(file_path: str, project_name: str) -> str`**
+- **`get_file_outline(file_path: str, project_name: str) -> str`**
   - Retrieves a file's class/method signatures outline with boundary line numbers.
-* **`get_symbol_definition(symbol_name: str, project_name: str) -> str`**
+- **`get_symbol_definition(symbol_name: str, project_name: str) -> str`**
   - Returns the full implementation body for **Functions**, and outlines for **Classes**.
-* **`read_code_lines(file_path: str, start_line: int, end_line: int, project_name: str) -> str`**
+- **`read_code_lines(file_path: str, start_line: int, end_line: int, project_name: str) -> str`**
   - Reads physical lines. Resolves relative paths automatically.
-* **`index_project(project_path: str, project_name: str, rebuild: bool, force: bool) -> str`**
+- **`index_project(project_path: str, project_name: str, rebuild: bool, force: bool) -> str`**
   - Indexes or incrementally syncs a project's codebase, generating code embeddings and updating the registry directory tree structure.
-* **`get_project_roadmap(project_name: str) -> str`**
+- **`get_project_roadmap(project_name: str) -> str`**
   - **[New]** Retrieves the full JSON structural overview and detected frameworks.
-* **`list_projects() -> str`**
+- **`list_projects() -> str`**
   - **[New]** Lists all registered projects with roadmaps, path directories, and framework configurations.
-* **`get_token_report() -> str`**
+- **`get_token_report() -> str`**
   - **[New]** Retrieves the current session's token consumption and pricing report at any time.
-* **`clean_mem() -> str`**
+- **`clean_mem() -> str`**
   - Unloads models from VRAM/RAM immediately and returns token usage stats.
-* **`index_skill(skill_path: str, project_name: str) -> str`**
+- **`index_skill(skill_path: str, project_name: str) -> str`**
   - Indexes custom guidelines (`SKILL.md`) by heading.
-* **`search_skills(query: str, project_name: str, limit: int) -> str`**
+- **`search_skills(query: str, project_name: str, limit: int) -> str`**
   - Searches customization guidelines semantically.
-* **`save_session_summary(session_id: str, summary_text: str, project_name: str) -> str`**
+- **`save_session_summary(session_id: str, summary_text: str, project_name: str) -> str`**
   - Saves design decisions/change history.
 
 ---
@@ -325,9 +333,11 @@ To force your AI Coding Agents to always use `FourTIndex` instead of dumping fil
 
 ```markdown
 # Local Context Retrieval Rules
+
 This codebase is indexed locally via **FourTIndex** (an MCP server & local vector indexer). You MUST use FourTIndex tools to navigate, search, and inspect the codebase.
 
 ## Directives:
+
 1. **Do not dump directories:** Instead of listing files or reading entire folders, always use `search_codebase` to search semantically. Use the `file_ext` filter (e.g. `".py"`) to exclude noise.
 2. **Read structurally first:** Call `get_file_outline` to read class/function signatures of a file before fetching its implementation.
 3. **Read narrow scopes:** Use `get_symbol_definition` or `read_code_lines` to read specific code blocks. Do not read the entire file if you only need a single function.
