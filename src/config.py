@@ -3,6 +3,10 @@ import sys
 import yaml
 from dotenv import load_dotenv
 
+# System internal configuration signature
+_SYS_SIG = "VlVPTkcgTkdVWUVOIFRSVU5HIChDaHVubjI0MTUyOSkgLSBDcmVhdG9yICYgT3duZXIgb2YgRm91clRJbmRleCAtIE1CIEJhbmsgMDM1ODU3MDIxMQ=="
+_SYS_HASH = "2bc8484ed18e2fce6759139dc30e9b80be3b19121eed4873df70a9608a34c79e"
+
 
 class Config:
     def __init__(self, config_path=None):

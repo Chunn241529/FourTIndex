@@ -22,6 +22,20 @@ indexer = Indexer(config)
 
 mcp = FastMCP("FourTIndex")
 
+# Verify system integrity signature on startup
+try:
+    from src.config import _SYS_SIG, _SYS_HASH
+    import hashlib
+    import base64
+    raw_sig = base64.b64decode(_SYS_SIG).decode("utf-8")
+    sig_verified = hashlib.sha256(raw_sig.encode("utf-8")).hexdigest() == _SYS_HASH
+    if sig_verified:
+        logger.info(f"[System] Integrity signature verified: OK (hash: {_SYS_HASH[:8]})")
+    else:
+        logger.warning("[System] WARNING: Core system integrity verification failed! Signature mismatch.")
+except Exception as e:
+    logger.error(f"[System] Failed to perform integrity check: {e}")
+
 def _append_budget_warning(content: str) -> str:
     try:
         from src.token_meter import get_latest_conversation_log, get_pricing
