@@ -30,6 +30,10 @@ class Database:
             metadata={"hnsw:space": "cosine"}
         )
 
+        # Initialize SQLite Registry DB for roadmaps
+        self.registry_db_path = os.path.expanduser("~/.fourtindex/registry.db")
+        self._init_registry_db()
+
     @staticmethod
     def _project_collection_names(project_id: str, store_id: str) -> tuple[str, str]:
         suffix = f"{project_id}_{store_id}".replace("-", "_")
@@ -102,11 +106,25 @@ class Database:
         query_embedding: list[float],
         limit: int = 5,
         file_ext: str | None = None,
+        language: str | None = None,
     ) -> list[dict]:
         code, _ = self.get_project_collections(project_id, store_id)
         if code.count() == 0:
             return []
-        where = {"file_ext": file_ext} if file_ext else None
+            
+        where_clauses = []
+        if file_ext:
+            where_clauses.append({"file_ext": file_ext})
+        if language:
+            where_clauses.append({"language": language.lower()})
+            
+        if len(where_clauses) == 1:
+            where = where_clauses[0]
+        elif len(where_clauses) > 1:
+            where = {"$and": where_clauses}
+        else:
+            where = None
+            
         results = code.query(
             query_embeddings=[query_embedding],
             n_results=min(limit, code.count()),
@@ -347,3 +365,164 @@ class Database:
                     "score": 1.0 - distances[idx]
                 })
         return formatted_results
+
+    def _init_registry_db(self):
+        import sqlite3
+        os.makedirs(os.path.dirname(self.registry_db_path), exist_ok=True)
+        with sqlite3.connect(self.registry_db_path) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS project_roadmaps (
+                    project_name TEXT PRIMARY KEY,
+                    directory_tree_json TEXT,
+                    framework_signatures_json TEXT,
+                    last_updated TEXT
+                )
+            """)
+            conn.commit()
+
+    def save_project_roadmap(self, project_name: str, directory_tree: dict, framework_signatures: list[str]):
+        """Saves the project roadmap to the SQLite registry database."""
+        import sqlite3
+        import datetime
+        now_str = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+        with sqlite3.connect(self.registry_db_path) as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO project_roadmaps (project_name, directory_tree_json, framework_signatures_json, last_updated)
+                VALUES (?, ?, ?, ?)
+            """, (
+                project_name,
+                json.dumps(directory_tree),
+                json.dumps(framework_signatures),
+                now_str
+            ))
+            conn.commit()
+
+    def get_project_roadmap(self, project_name: str) -> dict | None:
+        """Retrieves the project roadmap from the SQLite registry database."""
+        import sqlite3
+        with sqlite3.connect(self.registry_db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT directory_tree_json, framework_signatures_json, last_updated
+                FROM project_roadmaps
+                WHERE project_name = ?
+            """, (project_name,))
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "project_name": project_name,
+                    "directory_tree": json.loads(row[0]),
+                    "framework_signatures": json.loads(row[1]),
+                    "last_updated": row[2]
+                }
+        return None
+
+    def list_projects(self) -> list[dict]:
+        """Lists all registered projects with roadmaps from the SQLite registry database."""
+        import sqlite3
+        projects = []
+        with sqlite3.connect(self.registry_db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT project_name, framework_signatures_json, last_updated
+                FROM project_roadmaps
+            """)
+            for row in cursor.fetchall():
+                projects.append({
+                    "project_name": row[0],
+                    "framework_signatures": json.loads(row[1]),
+                    "last_updated": row[2]
+                })
+        return projects
+
+    def build_project_roadmap(self, project_root: str) -> tuple[dict, list[str]]:
+        """Crawls the project directory recursively to build a structural JSON tree and detect framework signatures, respecting ignore files."""
+        import pathspec
+        project_root = os.path.abspath(project_root)
+        ignore_lines = list(self.config.exclude_globs)
+        if self.config.respect_gitignore:
+            for ignore_name in (".gitignore", ".fourtindexignore"):
+                ignore_path = os.path.join(project_root, ignore_name)
+                if os.path.exists(ignore_path):
+                    try:
+                        with open(ignore_path, "r", encoding="utf-8", errors="replace") as file:
+                            ignore_lines.extend(file.read().splitlines())
+                    except OSError:
+                        pass
+        ignore_spec = pathspec.GitIgnoreSpec.from_lines(ignore_lines)
+        exclude_dirs = [os.path.normpath(os.path.join(project_root, d)) for d in self.config.exclude_dirs]
+        exclude_names = set(self.config.exclude_dirs)
+
+        detected_signatures = set()
+
+        def crawl(current_dir: str) -> dict | None:
+            rel_path = os.path.relpath(current_dir, project_root).replace("\\", "/")
+            if rel_path == ".":
+                rel_path = ""
+            
+            if rel_path and ignore_spec.match_file(rel_path + "/"):
+                return None
+
+            node_name = os.path.basename(current_dir) or project_root
+            node = {
+                "name": node_name,
+                "type": "directory",
+                "children": []
+            }
+
+            try:
+                entries = os.listdir(current_dir)
+            except OSError:
+                return None
+
+            for entry in entries:
+                full_path = os.path.normpath(os.path.join(current_dir, entry))
+                entry_rel = os.path.relpath(full_path, project_root).replace("\\", "/")
+
+                if os.path.isdir(full_path):
+                    if entry in exclude_names or full_path in exclude_dirs:
+                        continue
+                    child_node = crawl(full_path)
+                    if child_node:
+                        node["children"].append(child_node)
+                else:
+                    if ignore_spec.match_file(entry_rel):
+                        continue
+                    
+                    ext = os.path.splitext(entry)[1].lower()
+                    if ext == ".csproj":
+                        detected_signatures.add("Unity (C#)" if "Unity" in entry or "Assembly" in entry else "C# Project")
+                    elif ext == ".uproject":
+                        detected_signatures.add("Unreal Engine")
+                    elif entry == "project.godot":
+                        detected_signatures.add("Godot Engine")
+                    elif entry == "package.json":
+                        try:
+                            with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+                                pdata = json.load(f)
+                                deps = pdata.get("dependencies", {})
+                                dev_deps = pdata.get("devDependencies", {})
+                                all_deps = {**deps, **dev_deps}
+                                if any("cocos" in k.lower() for k in all_deps):
+                                    detected_signatures.add("Cocos Creator")
+                                else:
+                                    detected_signatures.add("Node.js/JavaScript")
+                        except Exception:
+                            detected_signatures.add("Node.js/JavaScript")
+                    elif entry in ("main.lua", "init.lua"):
+                        if os.path.exists(os.path.join(current_dir, "default.project.json")):
+                            detected_signatures.add("Roblox (Lua)")
+                    
+                    node["children"].append({
+                        "name": entry,
+                        "type": "file"
+                    })
+            
+            node["children"].sort(key=lambda x: (0 if x["type"] == "directory" else 1, x["name"].lower()))
+            return node
+
+        tree = crawl(project_root)
+        if os.path.exists(os.path.join(project_root, "default.project.json")):
+            detected_signatures.add("Roblox (Lua)")
+
+        return tree or {}, list(detected_signatures)

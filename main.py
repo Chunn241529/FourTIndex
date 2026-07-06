@@ -281,6 +281,14 @@ def cmd_mcp(args):
     from src.mcp_server import mcp
     mcp.run()
 
+def cmd_dashboard(args):
+    from src.dashboard_server import start_dashboard_server
+    try:
+        start_dashboard_server(port=args.port, open_browser=not args.no_open)
+    except KeyboardInterrupt:
+        print("\nDashboard server stopped.")
+        sys.exit(0)
+
 def main():
     parser = argparse.ArgumentParser(description="fourTindex - Local Code Indexer & MCP Assistant")
     subparsers = parser.add_subparsers(dest="command", required=True, help="Sub-command to execute")
@@ -337,6 +345,12 @@ def main():
     # mcp command
     p_mcp = subparsers.add_parser("mcp", help="Start MCP stdio server")
     p_mcp.set_defaults(func=cmd_mcp)
+
+    # dashboard command
+    p_dashboard = subparsers.add_parser("dashboard", help="Start the interactive token dashboard and context auditor web server")
+    p_dashboard.add_argument("--port", type=int, default=4040, help="Port to run the dashboard server on")
+    p_dashboard.add_argument("--no-open", action="store_true", help="Do not automatically open the dashboard in the web browser")
+    p_dashboard.set_defaults(func=cmd_dashboard)
     
     args = parser.parse_args()
     args.func(args)

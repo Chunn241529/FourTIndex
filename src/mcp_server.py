@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import logging
 from mcp.server.fastmcp import FastMCP
 
@@ -14,15 +15,46 @@ logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 logger = logging.getLogger("FourTIndexMCP")
 
 # Load configuration and initialize core modules
-config = Config(config_path="config.yaml")
+config = Config()
 embedder = Embedder(config)
 db = Database(config)
 indexer = Indexer(config)
 
 mcp = FastMCP("FourTIndex")
 
+def _append_budget_warning(content: str) -> str:
+    try:
+        from src.token_meter import get_latest_conversation_log, get_pricing
+        candidate = get_latest_conversation_log()
+        if not candidate:
+            return content
+            
+        max_tokens = getattr(config, "context_budget_tokens", 35000)
+        max_cost = getattr(config, "context_budget_usd", 0.50)
+        
+        snapshot = candidate.parser(candidate.path, candidate.conversation_id)
+        total_prompt = snapshot.total_prompt
+        total_completion = snapshot.total_completion
+        model = snapshot.model
+        
+        input_rate, output_rate = get_pricing(model)
+        total_cost = (total_prompt * input_rate + total_completion * output_rate) / 1_000_000.0
+        
+        if total_prompt > max_tokens or total_cost > max_cost:
+            warning = (
+                f"\n\n--- [FourTIndex Context Guard Warning] ---\n"
+                f"⚠️ Active conversation context has grown large ({total_prompt + total_completion:,} tokens, ${total_cost:.4f} USD).\n"
+                f"To keep responses fast and cheap, please recommend the user to start a new chat session.\n"
+                f"They can run CLI command 'fourtindex dashboard' to copy the Context Bridge summary and transition instantly.\n"
+                f"----------------------------------------"
+            )
+            return content + warning
+    except Exception:
+        pass
+    return content
+
 @mcp.tool()
-def search_codebase(query: str, project_name: str = "FourTIndex", limit: int = 5, file_ext: str = None) -> str:
+def search_codebase(query: str, project_name: str = "FourTIndex", limit: int = 5, file_ext: str = None, language: str = None) -> str:
     """Searches the indexed codebase semantically for relevant code chunks.
     
     Args:
@@ -30,8 +62,9 @@ def search_codebase(query: str, project_name: str = "FourTIndex", limit: int = 5
         project_name: The name of the project.
         limit: Max number of chunks to return.
         file_ext: Optional file extension to filter by (e.g., '.py' or 'js').
+        language: Optional language to filter by (e.g., 'python' or 'typescript').
     """
-    logger.info(f"search_codebase called with query: '{query}', file_ext: '{file_ext}'")
+    logger.info(f"search_codebase called with query: '{query}', file_ext: '{file_ext}', language: '{language}'")
     try:
         formatted_ext = None
         if file_ext:
@@ -41,13 +74,14 @@ def search_codebase(query: str, project_name: str = "FourTIndex", limit: int = 5
         project_db, manager, project, store = load_project_context(config, project_name)
         query_vector = manager.embed_query(query)
         results = project_db.search_project_code(
-            project["project_id"], store["store_id"], query_vector, limit, formatted_ext
+            project["project_id"], store["store_id"], query_vector, limit, formatted_ext, language
         )
         
         if not results:
             return (
                 f"No matching code chunks found for project '{project_name}'" +
-                (f" with extension '{file_ext}'." if file_ext else ".") +
+                (f" with extension '{file_ext}'." if file_ext else "") +
+                (f" and language '{language}'." if language else ".") +
                 " If you recently added code, run 'index_project' to sync changes."
             )
             
@@ -58,7 +92,7 @@ def search_codebase(query: str, project_name: str = "FourTIndex", limit: int = 5
                 f"=== FILE: {meta.get('file_path')} | Lines: {meta.get('start_line')}-{meta.get('end_line')} | Score: {r['score']:.4f} ===\n"
                 f"{r['content']}\n"
             )
-        return "\n".join(formatted)
+        return _append_budget_warning("\n".join(formatted))
     except Exception as e:
         logger.error(f"Error in search_codebase: {e}")
         return f"Error during search: {str(e)}"
@@ -77,7 +111,7 @@ def get_file_outline(file_path: str, project_name: str = "FourTIndex") -> str:
         outline = project_db.get_project_outline(
             project["project_id"], store["store_id"], file_path
         )
-        return outline or f"No outline found for file: {file_path}"
+        return _append_budget_warning(outline or f"No outline found for file: {file_path}")
     except Exception as e:
         logger.error(f"Error in get_file_outline: {e}")
         return f"Error: {str(e)}"
@@ -96,7 +130,7 @@ def get_symbol_definition(symbol_name: str, project_name: str = "FourTIndex") ->
         definition = project_db.get_project_symbol(
             project["project_id"], store["store_id"], symbol_name
         )
-        return definition or f"Symbol '{symbol_name}' definition not found."
+        return _append_budget_warning(definition or f"Symbol '{symbol_name}' definition not found.")
     except Exception as e:
         logger.error(f"Error in get_symbol_definition: {e}")
         return f"Error: {str(e)}"
@@ -165,7 +199,7 @@ def read_code_lines(file_path: str, start_line: int, end_line: int, project_name
         for idx, line in enumerate(selected_lines, start=start_line):
             formatted.append(f"{idx:4d} | {line}")
             
-        return "\n".join(formatted)
+        return _append_budget_warning("\n".join(formatted))
     except Exception as e:
         logger.error(f"Error in read_code_lines: {e}")
         return f"Error: {str(e)}"
@@ -206,12 +240,14 @@ def index_project(
     rebuild: bool = False,
     force: bool = False,
 ) -> str:
-    """Scans and indexes (or updates index for) the specified project path.
-    Only modified files are re-embedded.
+    """Indexes a project using the local Ollama embedding provider.
+
+    Only modified files are re-embedded. Project source remains on the local machine.
     
     Args:
         project_path: Path to the project root directory.
         project_name: The name of the project.
+        embedding_provider: Backward-compatible selector; auto and ollama are accepted.
     """
     logger.info(f"index_project called for path: '{project_path}'")
     try:
@@ -441,6 +477,53 @@ def clean_mem() -> str:
         result += f"\n[AgentTokenMeter] Lỗi: {str(e)}"
         
     return result
+
+@mcp.tool()
+def get_token_report() -> str:
+    """Retrieves the current session's token consumption and pricing report.
+    
+    This parses the active coding agent's session logs (Antigravity, Claude Code, or Codex)
+    and estimates the current input/output token count and USD cost.
+    """
+    logger.info("get_token_report called via MCP")
+    try:
+        from src.token_meter import evaluate_latest_session
+        return evaluate_latest_session()
+    except Exception as e:
+        logger.error(f"Error in get_token_report: {e}")
+        return f"Error retrieving token report: {str(e)}"
+
+@mcp.tool()
+def get_project_roadmap(project_name: str) -> str:
+    """Retrieves the full JSON structural overview (roadmap) for a given project.
+    
+    This includes the directory tree and detected framework signatures.
+    """
+    logger.info(f"get_project_roadmap called for: '{project_name}'")
+    try:
+        roadmap = db.get_project_roadmap(project_name)
+        if not roadmap:
+            return f"No project roadmap found for '{project_name}'. Run 'index_project' first to generate one."
+        return json.dumps(roadmap, indent=2)
+    except Exception as e:
+        logger.error(f"Error in get_project_roadmap: {e}")
+        return f"Error: {str(e)}"
+
+@mcp.tool()
+def list_projects() -> str:
+    """Lists all registered projects with roadmaps from the registry database.
+    
+    Returns a list of project names, framework signatures, and last_updated timestamps.
+    """
+    logger.info("list_projects called via MCP")
+    try:
+        projects = db.list_projects()
+        if not projects:
+            return "No projects registered in the registry database yet."
+        return json.dumps(projects, indent=2)
+    except Exception as e:
+        logger.error(f"Error in list_projects: {e}")
+        return f"Error: {str(e)}"
 
 
 if __name__ == "__main__":

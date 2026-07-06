@@ -42,7 +42,3 @@ indexing:
   max_file_size_bytes: 2097152
   respect_gitignore: true
   exclude_globs: []
-
-budget:
-  context_budget_tokens: 35000
-  context_budget_usd: 0.50

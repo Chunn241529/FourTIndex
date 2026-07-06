@@ -78,7 +78,11 @@ If MCP tools are not active, you can invoke FourTIndex via CLI using the local P
 
 ## Agent Guidelines & Loop Best Practices
 
-When answering questions or modifying code in this workspace, follow these optimization stages:
+> [!IMPORTANT]
+> **CRITICAL: NO STEP SKIPPING ALLOWED!**
+> The LLM is strictly prohibited from skipping any part of the development, verification, indexing, or cleanup process. Every task must be executed through all specified stages sequentially. Shortcuts or skipping steps will lead to bug accumulation and project failure.
+
+When answering questions or modifying code in this workspace, you MUST follow these optimization and verification stages:
 
 ### 1. Context Gathering Stage
 - **Never** read the entire codebase or list all directory trees recursively.
@@ -94,6 +98,15 @@ When answering questions or modifying code in this workspace, follow these optim
 - After modifying files, call `index_project` (or run `main.py index .` CLI) so that the local vector database is updated with your modifications. 
 - *Note: Because of **16x Batch Embedding** and **Incremental Sync**, updating the index for modified files is extremely fast (< 1s) and safe to run frequently.*
 
-### 4. Session Wrap-up (Session End)
-- When the task is complete, summarize your modifications and design decisions.
-- Call `save_session_summary` with a unique session ID (e.g., `session_<date>_<time>`) to save the session summary. This helps future sessions answer questions like "What did we do in the last session?" or "Why did we change the config?" using semantic history search.
+### 4. Deep Scan & Correctness Verification (Mandatory)
+Before finishing the task, perform a thorough review of your modifications following the **Anti-Bug Coding Rules v2** (mandatory):
+- **Symbol Scan**: Verify that all variables, functions, and properties exist and are correctly named.
+- **Dependency & Import Scan**: Ensure all imports are correct, no unused imports remain, and path targets exist.
+- **Type & Async Flow Scan**: Trace type flows, null/undefined safety guards, and await logic with proper error handling.
+- **Edge Cases**: Verify behavior on null, empty values, boundary conditions, and error-throwing code blocks.
+- **Semantic & Logical Correctness**: Do not use fake or placeholder logic. Ensure side effects are managed.
+
+### 5. Session Wrap-up (Session End)
+- **Memory Cleanup**: Call `clean_mem()` tool (or run `fourtindex clean-mem` CLI) to unload models from local VRAM and system memory.
+- **Save Design History**: When the task is complete, summarize your modifications and design decisions. Call `save_session_summary` with a unique session ID (e.g., `session_<date>_<time>`) to save the summary. This helps future sessions locate past design context.
+

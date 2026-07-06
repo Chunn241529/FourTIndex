@@ -8,6 +8,24 @@ import json
 import pathspec
 from src.config import Config
 
+EXTENSION_TO_LANGUAGE = {
+    ".py": "python",
+    ".js": "javascript",
+    ".ts": "typescript",
+    ".jsx": "javascript",
+    ".tsx": "typescript",
+    ".rs": "rust",
+    ".go": "go",
+    ".java": "java",
+    ".kt": "kotlin",
+    ".swift": "swift",
+    ".cs": "c_sharp",
+    ".cpp": "cpp",
+    ".h": "cpp",
+    ".gd": "gdscript",
+    ".lua": "lua",
+}
+
 class Indexer:
     def __init__(self, config: Config):
         self.config = config
@@ -90,6 +108,195 @@ class Indexer:
                         matched_files.append(full_path)
                     
         return matched_files
+
+    def parse_with_tree_sitter(self, content: str, file_path: str, relative_path: str, lang_name: str) -> list[dict]:
+        """Parses a file using tree-sitter to extract class/container outlines and functions/methods."""
+        try:
+            from tree_sitter_languages import get_parser
+        except ImportError as e:
+            raise ImportError(f"tree-sitter-languages is required for {lang_name} parsing: {e}")
+
+        parser = get_parser(lang_name)
+        if not parser:
+            raise ValueError(f"Failed to load tree-sitter parser for {lang_name}")
+
+        tree = parser.parse(bytes(content, "utf-8"))
+        
+        lines = content.splitlines()
+        total_lines = len(lines)
+        chunks = []
+        covered_lines = set()
+
+        # Classification matchers
+        def is_container_node(node) -> bool:
+            return any(sub in node.type for sub in [
+                "class_specifier", "struct_specifier", "interface_declaration", 
+                "trait_item", "enum_definition", "class_definition", 
+                "class_declaration", "struct_declaration", "struct_definition", 
+                "enum_declaration"
+            ])
+
+        def is_functional_node(node) -> bool:
+            return any(sub in node.type for sub in [
+                "function", "method", "procedure", "arrow_function", 
+                "method_specifier", "function_item"
+            ])
+
+        def extract_name(node) -> str:
+            name_node = node.child_by_field_name("name")
+            if name_node and name_node.text:
+                return name_node.text.decode("utf-8", errors="replace")
+            
+            for child in node.children:
+                if child.type in ("identifier", "type_identifier", "property_identifier", "field_identifier"):
+                    if child.text:
+                        return child.text.decode("utf-8", errors="replace")
+            
+            def find_first_ident(n):
+                if n.type in ("identifier", "type_identifier", "property_identifier"):
+                    return n.text.decode("utf-8", errors="replace") if n.text else None
+                for c in n.children:
+                    res = find_first_ident(c)
+                    if res:
+                        return res
+                return None
+            return find_first_ident(node) or ""
+
+        def get_container_name(node) -> str:
+            parts = []
+            curr = node
+            while curr:
+                if is_container_node(curr):
+                    name = extract_name(curr) or f"Anonymous_{curr.start_point[0]+1}"
+                    parts.append(name)
+                curr = curr.parent
+            return ".".join(reversed(parts))
+
+        def get_parent_container(node):
+            curr = node.parent
+            while curr:
+                if is_container_node(curr):
+                    return curr
+                curr = curr.parent
+            return None
+
+        def get_function_name(node) -> str:
+            parts = []
+            curr = node
+            while curr:
+                if is_functional_node(curr):
+                    name = extract_name(curr) or f"func_{curr.start_point[0]+1}"
+                    parts.append(name)
+                elif is_container_node(curr):
+                    break
+                curr = curr.parent
+            return ".".join(reversed(parts))
+
+        # Traverse tree to collect definitions
+        containers = []
+        functions = []
+
+        def collect(node):
+            if node.type == "ERROR":
+                # Isolate error node, do not recurse into its children
+                return
+            if is_container_node(node):
+                containers.append(node)
+            elif is_functional_node(node):
+                functions.append(node)
+                
+            for child in node.children:
+                collect(child)
+
+        collect(tree.root_node)
+
+        # 1. Process Containers
+        for c in containers:
+            c_start = c.start_point[0] + 1
+            c_end = c.end_point[0] + 1
+            covered_lines.update(range(c_start, c_end + 1))
+
+            c_fullname = get_container_name(c)
+            c_name = extract_name(c) or c_fullname
+            
+            # Find methods directly inside this container (where this container is the closest container parent)
+            methods = []
+            for f in functions:
+                if get_parent_container(f) == c:
+                    methods.append(f)
+
+            outline_content = [
+                f"# File: {relative_path}",
+                f"# Class Outline: class {c_name}",
+                f"# Lines: {c_start}-{c_end}"
+            ]
+            for f in methods:
+                f_name = extract_name(f) or "anonymous_method"
+                f_start = f.start_point[0] + 1
+                f_end = f.end_point[0] + 1
+                outline_content.append(f"  def {f_name}(...) # Lines {f_start}-{f_end}")
+
+            chunks.append({
+                "content": "\n".join(outline_content),
+                "chunk_type": "class_outline",
+                "symbol_name": c_fullname,
+                "start_line": c_start,
+                "end_line": c_end
+            })
+
+        # 2. Process Functions/Methods
+        for f in functions:
+            f_start = f.start_point[0] + 1
+            f_end = f.end_point[0] + 1
+            covered_lines.update(range(f_start, f_end + 1))
+
+            f_name = extract_name(f) or f"func_{f_start}"
+            parent_c = get_parent_container(f)
+            
+            if parent_c:
+                c_fullname = get_container_name(parent_c)
+                f_fullname = f"{c_fullname}.{f_name}"
+                header = (
+                    f"# [CONTEXT] File: {relative_path} | Class: {c_fullname} (Lines {parent_c.start_point[0]+1}-{parent_c.end_point[0]+1})\n"
+                    f"# Method: {f_name} | Lines: {f_start}-{f_end}\n"
+                    f"--------------------------------------------------\n"
+                )
+            else:
+                f_fullname = get_function_name(f) or f_name
+                header = (
+                    f"# [CONTEXT] File: {relative_path} (Global Scope)\n"
+                    f"# Function: {f_fullname} | Lines: {f_start}-{f_end}\n"
+                    f"--------------------------------------------------\n"
+                )
+
+            method_code = "\n".join(lines[f_start - 1 : f_end])
+            chunks.append({
+                "content": header + method_code,
+                "chunk_type": "function",
+                "symbol_name": f_fullname,
+                "start_line": f_start,
+                "end_line": f_end
+            })
+
+        # 3. Collect Global Scope / Remaining Lines
+        global_lines = []
+        global_start = None
+        
+        for idx, line in enumerate(lines, 1):
+            if idx not in covered_lines:
+                if global_start is None:
+                    global_start = idx
+                global_lines.append((idx, line))
+            else:
+                if global_lines:
+                    self._add_global_chunk(chunks, global_lines, global_start, idx - 1, relative_path)
+                    global_lines = []
+                    global_start = None
+                    
+        if global_lines:
+            self._add_global_chunk(chunks, global_lines, global_start, len(lines), relative_path)
+
+        return chunks
 
     def parse_python_file(self, content: str, file_path: str, relative_path: str) -> list[dict]:
         """Parses a Python file using AST to extract functions, class outlines, and global scopes."""
@@ -289,6 +496,15 @@ class Indexer:
             return []
 
         ext = os.path.splitext(file_path)[1].lower()
+        
+        # Route through tree-sitter if supported
+        tree_sitter_lang = EXTENSION_TO_LANGUAGE.get(ext)
+        if tree_sitter_lang:
+            try:
+                return self.parse_with_tree_sitter(content, file_path, relative_path, tree_sitter_lang)
+            except Exception as e:
+                sys.stderr.write(f"Warning: Tree-sitter failed for {relative_path} ({tree_sitter_lang}): {e}. Falling back.\n")
+
         if ext == ".py":
             return self.parse_python_file(content, file_path, relative_path)
         else:
@@ -297,19 +513,19 @@ class Indexer:
     def generate_file_outline_summary(self, chunks: list[dict], relative_path: str) -> str:
         """Generates a high-level string outline of the file's components for structural search."""
         outline = [f"File: {relative_path}"]
-        classes = []
-        functions = []
+        classes_info = []
+        functions_info = []
         
         for c in chunks:
             if c["chunk_type"] == "class_outline":
-                classes.append(c["symbol_name"])
+                classes_info.append(f"  class {c['symbol_name']} (Lines {c['start_line']}-{c['end_line']})")
             elif c["chunk_type"] == "function" and "." not in c["symbol_name"]:
-                functions.append(c["symbol_name"])
+                functions_info.append(f"  def {c['symbol_name']} (Lines {c['start_line']}-{c['end_line']})")
                 
-        if classes:
-            outline.append("Classes defined: " + ", ".join(classes))
-        if functions:
-            outline.append("Global Functions defined: " + ", ".join(functions))
+        if classes_info:
+            outline.append("Classes/Containers defined:\n" + "\n".join(classes_info))
+        if functions_info:
+            outline.append("Global Functions defined:\n" + "\n".join(functions_info))
             
         return "\n".join(outline)
 

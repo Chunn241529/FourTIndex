@@ -96,7 +96,7 @@ def test_index_is_profile_pinned_incremental_and_removes_deleted_files(
         service.index_project(
             str(project),
             "test-project",
-            options=IndexOptions(embedding_provider="voyage"),
+            options=IndexOptions(embedding_provider="remote"),
         )
 
 

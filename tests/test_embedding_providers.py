@@ -1,49 +1,30 @@
 import pytest
 
-from src.embedding.providers import (
-    CloudflareProvider,
-    CohereProvider,
-    GeminiProvider,
-    JinaProvider,
-    NvidiaProvider,
-    PineconeProvider,
-    VoyageProvider,
-)
+from src.embedding.base import ProviderError
+from src.embedding.providers import OllamaProvider, create_provider
 
 
-@pytest.mark.parametrize(
-    ("provider_type", "environment", "response"),
-    [
-        (VoyageProvider, {"VOYAGE_API_KEY": "secret"}, {"data": [{"index": 0, "embedding": [1, 2, 3]}]}),
-        (JinaProvider, {"JINA_API_KEY": "secret"}, {"data": [{"index": 0, "embedding": [1, 2, 3]}]}),
-        (
-            CloudflareProvider,
-            {"CLOUDFLARE_ACCOUNT_ID": "account", "CLOUDFLARE_API_TOKEN": "secret"},
-            {"result": {"data": [[1, 2, 3]]}},
-        ),
-        (PineconeProvider, {"PINECONE_API_KEY": "secret"}, {"data": [{"values": [1, 2, 3]}]}),
-        (GeminiProvider, {"GEMINI_API_KEY": "secret"}, {"embeddings": [{"values": [1, 2, 3]}]}),
-        (CohereProvider, {"COHERE_API_KEY": "secret"}, {"embeddings": {"float": [[1, 2, 3]]}}),
-        (NvidiaProvider, {"NVIDIA_API_KEY": "secret"}, {"data": [{"index": 0, "embedding": [1, 2, 3]}]}),
-    ],
-)
-def test_cloud_provider_response_validation(
-    monkeypatch, provider_type, environment, response
-):
-    for name, value in environment.items():
-        monkeypatch.setenv(name, value)
-    provider = provider_type("test-model", 3, 1)
-    monkeypatch.setattr(provider, "_post", lambda *args, **kwargs: response)
+def test_ollama_provider_validates_embeddings(monkeypatch):
+    provider = OllamaProvider("test-model", 3, "http://localhost:11434")
+    monkeypatch.setattr(
+        provider.client,
+        "embed",
+        lambda **kwargs: {"embeddings": [[1.0, 2.0, 3.0]]},
+    )
 
-    assert provider.configured
-    assert provider.embed_documents(["document"]) == [[1, 2, 3]]
-    assert provider.embed_query("query") == [1, 2, 3]
+    assert provider.embed_documents(["document"]) == [[1.0, 2.0, 3.0]]
+    assert provider.request_count == 1
 
 
-def test_provider_requires_all_credentials(monkeypatch):
-    monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
-    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "secret")
-    provider = CloudflareProvider("model", 3, 1)
+def test_create_provider_rejects_third_party_provider():
+    config = type(
+        "ConfigStub",
+        (),
+        {
+            "ollama_embedding_model": "test-model",
+            "ollama_host": "http://localhost:11434",
+        },
+    )()
 
-    assert not provider.configured
-    assert provider.missing_environment == ["CLOUDFLARE_ACCOUNT_ID"]
+    with pytest.raises(ProviderError, match="local Ollama only"):
+        create_provider("remote", config)

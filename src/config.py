@@ -4,23 +4,44 @@ import yaml
 from dotenv import load_dotenv
 
 
-PROVIDER_DEFAULTS = {
-    "voyage": {"model": "voyage-code-3", "dimension": 1024},
-    "jina": {"model": "jina-embeddings-v4", "dimension": 1024},
-    "cloudflare": {"model": "@cf/qwen/qwen3-embedding-0.6b", "dimension": 1024},
-    "pinecone": {"model": "llama-text-embed-v2", "dimension": 1024},
-    "gemini": {"model": "gemini-embedding-2", "dimension": 768},
-    "cohere": {"model": "embed-v4.0", "dimension": 1024},
-    "nvidia": {"model": "nvidia/nv-embedcode-7b-v1", "dimension": 4096},
-    "ollama": {"model": "qwen3-embedding:4b", "dimension": 0},
-}
-
 class Config:
     def __init__(self, config_path=None):
         if config_path is None:
-            # Find config.yaml in the project root (parent of 'src')
+            config_path = os.environ.get("FOURTINDEX_CONFIG_PATH")
+
+        if config_path is None:
+            # Check global user config directory (~/.fourtindex/config.yaml)
+            global_dir = os.path.expanduser("~/.fourtindex")
+            global_config = os.path.join(global_dir, "config.yaml")
+
+            # Determine where the default template configuration is
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            default_config = os.path.join(project_root, "config.yaml")
+            if not os.path.exists(default_config):
+                package_dir = os.path.dirname(os.path.abspath(__file__))
+                default_config = os.path.join(package_dir, "config.yaml")
+
+            # If default template config is found, initialize global config from it
+            if os.path.exists(default_config):
+                if not os.path.exists(global_config):
+                    try:
+                        os.makedirs(global_dir, exist_ok=True)
+                        import shutil
+                        shutil.copy2(default_config, global_config)
+                        sys.stderr.write(f"Initialized global configuration at: {global_config}\n")
+                    except Exception as e:
+                        sys.stderr.write(f"Warning: Failed to copy default config to {global_config}: {e}\n")
+                config_path = global_config
+            else:
+                # If template config is not found, fallback to global_config if it exists
+                if os.path.exists(global_config):
+                    config_path = global_config
+
+        if config_path is None:
+            # Fallback to local project root default
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             config_path = os.path.join(project_root, "config.yaml")
+
         self.config_path = os.path.abspath(config_path)
         env_path = os.environ.get("FOURTINDEX_ENV_FILE") or os.path.join(
             os.path.dirname(self.config_path), ".env"
@@ -49,6 +70,10 @@ class Config:
             # If not found, try to locate in the project root of this code file
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             fallback_path = os.path.join(project_root, "config.yaml")
+            if not os.path.exists(fallback_path):
+                package_dir = os.path.dirname(os.path.abspath(__file__))
+                fallback_path = os.path.join(package_dir, "config.yaml")
+
             if os.path.exists(fallback_path):
                 self.config_path = fallback_path
                 try:
@@ -73,7 +98,8 @@ class Config:
     @property
     def supported_extensions(self) -> list:
         return self.data.get("project", {}).get("supported_extensions", [
-            ".py", ".js", ".ts", ".jsx", ".tsx", ".json", ".md", ".txt"
+            ".py", ".js", ".ts", ".jsx", ".tsx", ".json", ".md", ".txt",
+            ".rs", ".go", ".java", ".kt", ".swift", ".cs", ".cpp", ".h", ".gd", ".lua"
         ])
 
     @property
@@ -100,12 +126,7 @@ class Config:
 
     @property
     def embedding_provider_chain(self) -> list[str]:
-        env_value = os.environ.get("FOURTINDEX_EMBEDDING_PROVIDER_CHAIN")
-        if env_value:
-            providers = [item.strip().lower() for item in env_value.split(",") if item.strip()]
-        else:
-            providers = self.data.get("embedding", {}).get("provider_chain", ["ollama"])
-        return list(dict.fromkeys(providers or ["ollama"]))
+        return ["ollama"]
 
     @property
     def embedding_batch_size(self) -> int:
@@ -118,10 +139,6 @@ class Config:
     @property
     def embedding_retry_attempts(self) -> int:
         return max(0, self._int_value("embedding", "retry_attempts", 2))
-
-    @property
-    def embedding_timeout_seconds(self) -> int:
-        return max(1, self._int_value("embedding", "request_timeout_seconds", 60))
 
     @property
     def parse_workers(self) -> int:
@@ -144,11 +161,15 @@ class Config:
     def exclude_globs(self) -> list[str]:
         return list(self.data.get("indexing", {}).get("exclude_globs", []))
 
-    def embedding_provider_settings(self, provider_name: str) -> dict:
-        name = provider_name.lower()
-        defaults = dict(PROVIDER_DEFAULTS.get(name, {}))
-        configured = self.data.get("embedding", {}).get("providers", {}).get(name, {})
-        defaults.update(configured)
-        if name == "ollama":
-            defaults["model"] = self.ollama_embedding_model
-        return defaults
+    @property
+    def context_budget_tokens(self) -> int:
+        return self._int_value("budget", "context_budget_tokens", 35000)
+
+    @property
+    def context_budget_usd(self) -> float:
+        val = self.data.get("budget", {}).get("context_budget_usd", 0.50)
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return 0.50
+

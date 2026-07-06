@@ -1,0 +1,1307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FourTIndex - Token Dashboard & Context Auditor</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- ApexCharts for rich analytics -->
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        :root {
+            --bg-base: #060913;
+            --bg-surface: rgba(15, 23, 42, 0.45);
+            --bg-surface-hover: rgba(30, 41, 59, 0.6);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-glow: rgba(99, 102, 241, 0.15);
+            
+            --color-primary: #6366f1;
+            --color-primary-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+            --color-success: #10b981;
+            --color-warning: #f59e0b;
+            --color-danger: #ef4444;
+            --color-text: #f8fafc;
+            --color-text-muted: #94a3b8;
+            --font-outfit: 'Outfit', sans-serif;
+            --font-inter: 'Inter', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+            
+            --card-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-inter);
+            background-color: var(--bg-base);
+            color: var(--color-text);
+            min-height: 100vh;
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(99, 102, 241, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(168, 85, 247, 0.08) 0%, transparent 40%);
+        }
+
+        /* Glassmorphism card template */
+        .glass-card {
+            background: var(--bg-surface);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            box-shadow: var(--card-shadow);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .glass-card:hover {
+            border-color: rgba(99, 102, 241, 0.3);
+            box-shadow: 0 10px 40px 0 rgba(99, 102, 241, 0.08);
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.2);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        /* App Layout */
+        .app-container {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            min-height: 100vh;
+        }
+
+        /* Sidebar design */
+        aside {
+            border-right: 1px solid var(--border-color);
+            background: rgba(6, 9, 19, 0.8);
+            backdrop-filter: blur(20px);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .sidebar-header {
+            padding: 24px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .sidebar-header h1 {
+            font-family: var(--font-outfit);
+            font-size: 20px;
+            font-weight: 700;
+            background: var(--color-primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .sessions-list-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .session-card {
+            padding: 16px;
+            border-radius: 12px;
+            cursor: pointer;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            transition: all 0.2s ease;
+        }
+
+        .session-card:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(99, 102, 241, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .session-card.active {
+            background: rgba(99, 102, 241, 0.12);
+            border-color: var(--color-primary);
+            box-shadow: 0 4px 20px rgba(99, 102, 241, 0.15);
+        }
+
+        .session-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .agent-badge {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 4px 8px;
+            border-radius: 20px;
+            text-transform: uppercase;
+        }
+
+        .agent-antigravity { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); }
+        .agent-claude { background: rgba(249, 115, 22, 0.15); color: #fdba74; border: 1px solid rgba(249, 115, 22, 0.3); }
+        .agent-codex { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.3); }
+
+        .session-cost {
+            font-family: var(--font-outfit);
+            font-weight: 600;
+            font-size: 14px;
+            color: var(--color-success);
+        }
+
+        .session-details {
+            font-size: 12px;
+            color: var(--color-text-muted);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .session-id {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* Main Content View */
+        main {
+            padding: 32px;
+            overflow-y: auto;
+            max-height: 100vh;
+        }
+
+        .main-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 32px;
+        }
+
+        .main-header-left h2 {
+            font-family: var(--font-outfit);
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .main-header-left p {
+            color: var(--color-text-muted);
+            font-size: 14px;
+            font-family: var(--font-mono);
+        }
+
+        /* VRAM Memory Cleaner button */
+        .btn-clean {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--color-primary-gradient);
+            border: none;
+            color: #fff;
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-family: var(--font-outfit);
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            box-shadow: 0 4px 20px rgba(99, 102, 241, 0.25);
+            transition: all 0.2s ease;
+        }
+
+        .btn-clean:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 24px rgba(99, 102, 241, 0.35);
+        }
+
+        .btn-clean:active {
+            transform: translateY(0);
+        }
+
+        /* Overview Metrics Cards */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+
+        .metric-card {
+            padding: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .metric-info h3 {
+            font-size: 13px;
+            color: var(--color-text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .metric-info .value {
+            font-family: var(--font-outfit);
+            font-size: 28px;
+            font-weight: 700;
+        }
+
+        .metric-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            background: rgba(99, 102, 241, 0.1);
+            color: var(--color-primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Interactive Grid Layout */
+        .dashboard-body-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+
+        .chart-card {
+            padding: 24px;
+            height: 380px;
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .chart-header h3 {
+            font-family: var(--font-outfit);
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        /* Context Warnings */
+        .warnings-panel {
+            padding: 24px;
+            margin-bottom: 32px;
+        }
+
+        .warnings-panel h3 {
+            font-family: var(--font-outfit);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 16px;
+        }
+
+        .warnings-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .warning-item {
+            display: flex;
+            gap: 12px;
+            padding: 16px;
+            border-radius: 10px;
+            align-items: flex-start;
+        }
+
+        .warning-warning {
+            background: rgba(245, 158, 11, 0.08);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+            color: #fcd34d;
+        }
+
+        .warning-info {
+            background: rgba(99, 102, 241, 0.08);
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            color: #a5b4fc;
+        }
+
+        /* Context Bridge Card */
+        .bridge-panel {
+            padding: 24px;
+            margin-bottom: 32px;
+            position: relative;
+        }
+
+        .bridge-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .bridge-header h3 {
+            font-family: var(--font-outfit);
+            font-size: 16px;
+        }
+
+        .bridge-actions {
+            display: flex;
+            gap: 12px;
+        }
+
+        .btn-action {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.02);
+            color: var(--color-text);
+            transition: all 0.2s ease;
+        }
+
+        .btn-action:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: var(--color-primary);
+        }
+
+        .bridge-content {
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid var(--border-color);
+            padding: 16px;
+            border-radius: 10px;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            max-height: 250px;
+            overflow-y: auto;
+            color: #cbd5e1;
+        }
+
+        /* Timeline and detailed breakdown */
+        .timeline-section {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 24px;
+        }
+
+        .timeline-card {
+            padding: 24px;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .timeline-card h3 {
+            font-family: var(--font-outfit);
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+
+        .timeline-list {
+            position: relative;
+            padding-left: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .timeline-list::before {
+            content: '';
+            position: absolute;
+            left: 4px;
+            top: 6px;
+            bottom: 6px;
+            width: 2px;
+            background: var(--border-color);
+        }
+
+        .timeline-item {
+            position: relative;
+            padding: 12px 16px;
+            border-radius: 10px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: all 0.2s ease;
+            background: rgba(255, 255, 255, 0.01);
+        }
+
+        .timeline-item:hover {
+            background: rgba(255, 255, 255, 0.03);
+            border-color: rgba(255, 255, 255, 0.05);
+        }
+
+        .timeline-item.active {
+            background: rgba(99, 102, 241, 0.08);
+            border-color: rgba(99, 102, 241, 0.3);
+        }
+
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -20px;
+            top: 18px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--color-text-muted);
+            border: 2px solid var(--bg-base);
+            transition: all 0.2s ease;
+        }
+
+        .timeline-item.active::before {
+            background: var(--color-primary);
+            box-shadow: 0 0 8px var(--color-primary);
+        }
+
+        .timeline-item-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+        }
+
+        .timeline-item-title {
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .timeline-item-cost {
+            font-family: var(--font-outfit);
+            font-size: 12px;
+            color: var(--color-success);
+            font-weight: 500;
+        }
+
+        .timeline-item-desc {
+            font-size: 12px;
+            color: var(--color-text-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .timeline-item-tokens {
+            font-size: 11px;
+            margin-top: 6px;
+            color: var(--color-text-muted);
+            font-family: var(--font-mono);
+        }
+
+        /* Detail panel */
+        .detail-panel {
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .detail-header h3 {
+            font-family: var(--font-outfit);
+            font-size: 18px;
+            margin-bottom: 6px;
+        }
+
+        .detail-query {
+            background: rgba(0, 0, 0, 0.15);
+            border: 1px solid var(--border-color);
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            color: var(--color-text);
+            margin-bottom: 16px;
+            max-height: 100px;
+            overflow-y: auto;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+
+        .detail-block h4 {
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--color-text-muted);
+            margin-bottom: 12px;
+            font-weight: 600;
+        }
+
+        .detail-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .detail-table th, .detail-table td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .detail-table th {
+            color: var(--color-text-muted);
+            font-weight: 500;
+        }
+
+        .detail-table tbody tr:hover {
+            background: rgba(255, 255, 255, 0.01);
+        }
+
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 300px;
+            color: var(--color-text-muted);
+            gap: 16px;
+        }
+
+        .empty-state p {
+            font-size: 14px;
+        }
+
+        .spinner {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* Toast Notifications */
+        .toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .toast {
+            background: #0f172a;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #e2e8f0;
+            padding: 14px 20px;
+            border-radius: 8px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 250px;
+            font-size: 14px;
+            transform: translateY(20px);
+            opacity: 0;
+            animation: slideIn 0.3s forwards cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes slideIn {
+            to { transform: translateY(0); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        
+        <!-- Sidebar -->
+        <aside>
+            <div class="sidebar-header">
+                <i data-lucide="gauge" style="color: #6366f1;"></i>
+                <h1>FourTIndex</h1>
+            </div>
+            <div class="sessions-list-container" id="sessions-list">
+                <div class="empty-state">
+                    <i data-lucide="inbox"></i>
+                    <p>Scanning local logs...</p>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Workspace -->
+        <main>
+            
+            <!-- Header bar -->
+            <div class="main-header">
+                <div class="main-header-left">
+                    <h2 id="active-session-title">Session Audit</h2>
+                    <p id="active-session-meta">Select a coding session from the sidebar to audit.</p>
+                </div>
+                <button class="btn-clean" id="btn-clean-mem">
+                    <i data-lucide="refresh-cw" id="clean-spinner"></i>
+                    <span>Clean GPU VRAM</span>
+                </button>
+            </div>
+
+            <!-- Dashboard Details (hidden until session selected) -->
+            <div id="dashboard-content" style="display: none;">
+                
+                <!-- Metrics -->
+                <div class="metrics-grid">
+                    <div class="glass-card metric-card">
+                        <div class="metric-info">
+                            <h3>Total cost</h3>
+                            <div class="value" id="val-cost" style="color: #10b981;">$0.00</div>
+                        </div>
+                        <div class="metric-icon" style="background: rgba(16, 185, 129, 0.1); color: #10b981;">
+                            <i data-lucide="dollar-sign"></i>
+                        </div>
+                    </div>
+                    <div class="glass-card metric-card">
+                        <div class="metric-info">
+                            <h3>Total tokens</h3>
+                            <div class="value" id="val-tokens">0</div>
+                        </div>
+                        <div class="metric-icon">
+                            <i data-lucide="activity"></i>
+                        </div>
+                    </div>
+                    <div class="glass-card metric-card">
+                        <div class="metric-info">
+                            <h3>Avg Turn Cost</h3>
+                            <div class="value" id="val-avg-cost">$0.00</div>
+                        </div>
+                        <div class="metric-icon" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b;">
+                            <i data-lucide="bar-chart-2"></i>
+                        </div>
+                    </div>
+                    <div class="glass-card metric-card">
+                        <div class="metric-info">
+                            <h3>Total Turns</h3>
+                            <div class="value" id="val-turns">0</div>
+                        </div>
+                        <div class="metric-icon" style="background: rgba(168, 85, 247, 0.1); color: #a855f7;">
+                            <i data-lucide="message-square"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts -->
+                <div class="dashboard-body-grid">
+                    <div class="glass-card chart-card">
+                        <div class="chart-header">
+                            <h3>Token Size Progression</h3>
+                        </div>
+                        <div id="progression-chart"></div>
+                    </div>
+                    <div class="glass-card chart-card">
+                        <div class="chart-header">
+                            <h3>Cost Contribution Allocation</h3>
+                        </div>
+                        <div id="distribution-chart"></div>
+                    </div>
+                </div>
+
+                <!-- Context Warnings Panel -->
+                <div class="glass-card warnings-panel" id="warnings-panel">
+                    <h3>
+                        <i data-lucide="alert-triangle" style="color: var(--color-warning);"></i>
+                        <span>Context Pruning Warnings & Advice</span>
+                    </h3>
+                    <div class="warnings-list" id="warnings-list">
+                        <div class="warning-item warning-info">
+                            <i data-lucide="check-circle-2"></i>
+                            <div>Your prompt context contains no large bloating anomalies. Work away!</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Context Bridge Panel -->
+                <div class="glass-card bridge-panel">
+                    <div class="bridge-header">
+                        <h3>
+                            <i data-lucide="git-branch" style="color: var(--color-primary); margin-right: 6px; vertical-align: middle;"></i>
+                            <span>Transition Context Bridge</span>
+                        </h3>
+                        <div class="bridge-actions">
+                            <button class="btn-action" id="btn-generate-ai-bridge">
+                                <i data-lucide="sparkles"></i>
+                                <span>Generate AI Summary</span>
+                            </button>
+                            <button class="btn-action" id="btn-copy-bridge">
+                                <i data-lucide="copy" id="copy-icon"></i>
+                                <span>Copy Bridge Summary</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="bridge-content" id="bridge-content">Generating structured transition bridge...</div>
+                </div>
+
+                <!-- Detailed Audit Timeline & Grid -->
+                <div class="timeline-section">
+                    <!-- Left: turns list -->
+                    <div class="glass-card timeline-card">
+                        <h3>Turns Timeline</h3>
+                        <div class="timeline-list" id="timeline-turns">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- Right: Selected turn details -->
+                    <div class="glass-card detail-panel">
+                        <div class="detail-header">
+                            <h3 id="detail-turn-title">Select a turn to audit</h3>
+                            <div class="detail-query" id="detail-turn-query"></div>
+                        </div>
+                        
+                        <div class="detail-grid">
+                            <!-- Files Read -->
+                            <div class="detail-block">
+                                <h4>Files In Context</h4>
+                                <table class="detail-table" id="table-files">
+                                    <thead>
+                                        <tr>
+                                            <th>File Name</th>
+                                            <th style="text-align: right;">Tokens</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td colspan="2" style="color: var(--color-text-muted); text-align: center;">No files read in this turn.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            
+                            <!-- Tools Executed -->
+                            <div class="detail-block">
+                                <h4>Tools / Subagents Runs</h4>
+                                <table class="detail-table" id="table-tools">
+                                    <thead>
+                                        <tr>
+                                            <th>Action / Command</th>
+                                            <th style="text-align: right;">Size</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td colspan="2" style="color: var(--color-text-muted); text-align: center;">No tool executions.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+        </main>
+
+    </div>
+
+    <!-- Toast Notifications container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script>
+        // Global State
+        let activeSessionId = null;
+        let activeSessionAgent = null;
+        let activeSessionData = null;
+        let selectedTurnIndex = null;
+        
+        let progressionChartObj = null;
+        let distributionChartObj = null;
+
+        // API base URL (works if served locally by python server)
+        const API_BASE = "";
+
+        // Toast notifications helper
+        function showToast(message, type = "success") {
+            const container = document.getElementById("toast-container");
+            const toast = document.createElement("div");
+            toast.className = "toast";
+            toast.style.borderColor = type === "success" ? "rgba(16, 185, 129, 0.4)" : "rgba(239, 68, 68, 0.4)";
+            
+            const icon = type === "success" ? "check-circle" : "alert-circle";
+            toast.innerHTML = `<i data-lucide="${icon}" style="color: ${type === "success" ? "#10b981" : "#ef4444"}"></i><span>${message}</span>`;
+            
+            container.appendChild(toast);
+            lucide.createIcons();
+            
+            setTimeout(() => {
+                toast.style.transition = "all 0.3s ease";
+                toast.style.opacity = "0";
+                toast.style.transform = "translateY(20px)";
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // Fetch and render sessions
+        async function loadSessions() {
+            try {
+                const res = await fetch(`${API_BASE}/api/sessions`);
+                const sessions = await res.json();
+                
+                const container = document.getElementById("sessions-list");
+                if (sessions.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <i data-lucide="folder-open"></i>
+                            <p>No active sessions detected yet.</p>
+                        </div>
+                    `;
+                    lucide.createIcons();
+                    return;
+                }
+                
+                container.innerHTML = "";
+                sessions.forEach(s => {
+                    const card = document.createElement("div");
+                    card.className = `session-card ${s.id === activeSessionId ? 'active' : ''}`;
+                    card.onclick = () => selectSession(s.id, s.agent);
+                    
+                    const dateStr = new Date(s.modified_at * 1000).toLocaleString();
+                    const costFormatted = s.total_cost.toFixed(4);
+                    const tokensFormatted = (s.total_prompt + s.total_completion).toLocaleString();
+                    
+                    card.innerHTML = `
+                        <div class="session-card-header">
+                            <span class="agent-badge agent-${s.agent}">${s.agent}</span>
+                            <span class="session-cost">$${costFormatted}</span>
+                        </div>
+                        <div class="session-details">
+                            <div class="session-id">${s.id}</div>
+                            <div style="display: flex; justify-content: space-between; font-size: 11px;">
+                                <span>${tokensFormatted} tokens</span>
+                                <span>${dateStr}</span>
+                            </div>
+                        </div>
+                    `;
+                    container.appendChild(card);
+                });
+                lucide.createIcons();
+            } catch (err) {
+                console.error("Failed to load sessions:", err);
+            }
+        }
+
+        // Select active session
+        async function selectSession(sessionId, agent) {
+            activeSessionId = sessionId;
+            activeSessionAgent = agent;
+            
+            // Mark active in sidebar
+            const cards = document.querySelectorAll(".session-card");
+            cards.forEach(card => {
+                const idDiv = card.querySelector(".session-id");
+                if (idDiv && idDiv.innerText === sessionId) {
+                    card.classList.add("active");
+                } else {
+                    card.classList.remove("active");
+                }
+            });
+
+            // Fetch session audit details
+            try {
+                const res = await fetch(`${API_BASE}/api/session-details?id=${sessionId}&agent=${agent}`);
+                const data = await res.json();
+                
+                if (data.error) {
+                    showToast(data.error, "danger");
+                    return;
+                }
+                
+                activeSessionData = data;
+                
+                // Show dashboard content
+                document.getElementById("dashboard-content").style.display = "block";
+                
+                // Update header
+                document.getElementById("active-session-title").innerText = `${data.agent.toUpperCase()} Session Audit`;
+                document.getElementById("active-session-meta").innerText = `ID: ${data.conversation_id} | Model: ${data.model}`;
+                
+                // Update metrics
+                renderMetrics(data);
+                
+                // Render charts
+                renderCharts(data);
+                
+                // Render warnings
+                renderWarnings(data.recommendations);
+                
+                // Render Bridge Summary
+                document.getElementById("bridge-content").innerText = data.bridge_summary;
+                
+                // Render Turns list
+                renderTurnsTimeline(data.turns);
+                
+                // Select first turn by default
+                if (data.turns && data.turns.length > 0) {
+                    selectTurn(0);
+                }
+                
+            } catch (err) {
+                console.error("Failed to fetch session details:", err);
+                showToast("Failed to load session details", "danger");
+            }
+        }
+
+        // Render key metric values
+        function renderMetrics(data) {
+            let totalPrompt = 0;
+            let totalCompletion = 0;
+            let totalCost = 0;
+            const turnCount = data.turns.length;
+
+            data.turns.forEach(t => {
+                totalPrompt += t.prompt_tokens;
+                totalCompletion += t.completion_tokens;
+                totalCost += t.cost;
+            });
+
+            const avgCost = turnCount > 0 ? (totalCost / turnCount) : 0;
+
+            document.getElementById("val-cost").innerText = `$${totalCost.toFixed(4)}`;
+            document.getElementById("val-tokens").innerText = (totalPrompt + totalCompletion).toLocaleString();
+            document.getElementById("val-avg-cost").innerText = `$${avgCost.toFixed(4)}`;
+            document.getElementById("val-turns").innerText = turnCount;
+        }
+
+        // Render ApexCharts visual analytics
+        function renderCharts(data) {
+            const categories = data.turns.map(t => `Turn ${t.turn_index}`);
+            
+            // Progression Chart (Context breakdown over turns)
+            const systemData = data.turns.map(t => t.breakdown.system || 0);
+            const historyData = data.turns.map(t => t.breakdown.chat_history || 0);
+            const filesData = data.turns.map(t => t.breakdown.files || 0);
+            const toolsData = data.turns.map(t => t.breakdown.tool_outputs || 0);
+            const inputData = data.turns.map(t => t.breakdown.user_input || 0);
+            
+            const progressionOptions = {
+                series: [
+                    { name: 'System Context', data: systemData },
+                    { name: 'Previous History', data: historyData },
+                    { name: 'Read Files', data: filesData },
+                    { name: 'Tool Outputs', data: toolsData },
+                    { name: 'User New Input', data: inputData }
+                ],
+                chart: {
+                    type: 'area',
+                    height: 320,
+                    stacked: true,
+                    background: 'transparent',
+                    foreColor: '#94a3b8',
+                    toolbar: { show: false }
+                },
+                colors: ['#475569', '#3b82f6', '#ec4899', '#f59e0b', '#10b981'],
+                dataLabels: { enabled: false },
+                stroke: { curve: 'smooth', width: 2 },
+                xaxis: { categories: categories },
+                grid: { borderColor: 'rgba(255,255,255,0.05)' },
+                tooltip: { theme: 'dark' }
+            };
+
+            if (progressionChartObj) {
+                progressionChartObj.updateOptions(progressionOptions);
+            } else {
+                progressionChartObj = new ApexCharts(document.querySelector("#progression-chart"), progressionOptions);
+                progressionChartObj.render();
+            }
+
+            // Distribution Chart (Aggregated total cost components)
+            let totalSys = 0, totalHist = 0, totalFiles = 0, totalTools = 0, totalInputs = 0;
+            data.turns.forEach(t => {
+                totalSys += t.breakdown.system || 0;
+                totalHist += t.breakdown.chat_history || 0;
+                totalFiles += t.breakdown.files || 0;
+                totalTools += t.breakdown.tool_outputs || 0;
+                totalInputs += t.breakdown.user_input || 0;
+            });
+
+            const distributionOptions = {
+                series: [totalSys, totalHist, totalFiles, totalTools, totalInputs],
+                labels: ['System', 'Chat History', 'Code Files', 'Tool Outputs', 'User Input'],
+                chart: {
+                    type: 'donut',
+                    height: 320,
+                    background: 'transparent',
+                    foreColor: '#94a3b8'
+                },
+                colors: ['#475569', '#3b82f6', '#ec4899', '#f59e0b', '#10b981'],
+                stroke: { colors: ['#0f172a'] },
+                legend: { position: 'bottom' },
+                dataLabels: { enabled: false },
+                tooltip: { theme: 'dark' }
+            };
+
+            if (distributionChartObj) {
+                distributionChartObj.updateOptions(distributionOptions);
+            } else {
+                distributionChartObj = new ApexCharts(document.querySelector("#distribution-chart"), distributionOptions);
+                distributionChartObj.render();
+            }
+        }
+
+        // Render warnings advice
+        function renderWarnings(recommendations) {
+            const container = document.getElementById("warnings-list");
+            if (!recommendations || recommendations.length === 0) {
+                container.innerHTML = `
+                    <div class="warning-item warning-info" style="background: rgba(16, 185, 129, 0.08); border-color: rgba(16, 185, 129, 0.2); color: #6ee7b7;">
+                        <i data-lucide="check-circle-2"></i>
+                        <div>Good job! No bloating context detected in this session. Enjoy writing clean code.</div>
+                    </div>
+                `;
+                lucide.createIcons();
+                return;
+            }
+
+            container.innerHTML = "";
+            recommendations.forEach(r => {
+                const item = document.createElement("div");
+                item.className = `warning-item warning-${r.type}`;
+                const icon = r.type === "warning" ? "alert-triangle" : "info";
+                item.innerHTML = `
+                    <i data-lucide="${icon}"></i>
+                    <div>${r.message}</div>
+                `;
+                container.appendChild(item);
+            });
+            lucide.createIcons();
+        }
+
+        // Render turns timeline list
+        function renderTurnsTimeline(turns) {
+            const container = document.getElementById("timeline-turns");
+            container.innerHTML = "";
+            
+            turns.forEach((t, i) => {
+                const item = document.createElement("div");
+                item.className = `timeline-item ${i === selectedTurnIndex ? 'active' : ''}`;
+                item.onclick = () => selectTurn(i);
+                
+                const costFormatted = t.cost.toFixed(4);
+                const totalTokens = (t.prompt_tokens + t.completion_tokens).toLocaleString();
+                
+                item.innerHTML = `
+                    <div class="timeline-item-header">
+                        <span class="timeline-item-title">Turn ${t.turn_index}</span>
+                        <span class="timeline-item-cost">$${costFormatted}</span>
+                    </div>
+                    <div class="timeline-item-desc">${t.user_query}</div>
+                    <div class="timeline-item-tokens">${totalTokens} tokens total</div>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        // Select and audit specific turn
+        function selectTurn(index) {
+            selectedTurnIndex = index;
+            
+            // Mark active timeline item
+            const items = document.querySelectorAll(".timeline-item");
+            items.forEach((item, i) => {
+                if (i === index) {
+                    item.classList.add("active");
+                } else {
+                    item.classList.remove("active");
+                }
+            });
+
+            const turn = activeSessionData.turns[index];
+            document.getElementById("detail-turn-title").innerText = `Turn ${turn.turn_index} Audit Details`;
+            document.getElementById("detail-turn-query").innerText = turn.full_query;
+
+            // Render Files Read table
+            const filesTable = document.querySelector("#table-files tbody");
+            if (!turn.files_read || turn.files_read.length === 0) {
+                filesTable.innerHTML = `
+                    <tr>
+                        <td colspan="2" style="color: var(--color-text-muted); text-align: center;">No files read in this turn.</td>
+                    </tr>
+                `;
+            } else {
+                filesTable.innerHTML = "";
+                turn.files_read.forEach(f => {
+                    const row = document.createElement("tr");
+                    row.innerHTML = `
+                        <td style="font-family: var(--font-mono); font-size: 12px; color: #a5b4fc;">${f.name}</td>
+                        <td style="text-align: right; font-family: var(--font-mono);">${f.tokens.toLocaleString()}</td>
+                    `;
+                    filesTable.appendChild(row);
+                });
+            }
+
+            // Render Tools table
+            const toolsTable = document.querySelector("#table-tools tbody");
+            
+            // Combine tool details with tool calls
+            const tools = [];
+            
+            // Add tool execution outputs
+            if (turn.tool_details) {
+                turn.tool_details.forEach(t => {
+                    tools.push({ name: t.name, size: t.tokens.toLocaleString() + " tokens" });
+                });
+            }
+            
+            // If no detailed tool outputs but we have tool calls list, show calls
+            if (tools.length === 0 && turn.tool_calls) {
+                turn.tool_calls.forEach(call => {
+                    tools.push({ name: `mcp_call: ${call}`, size: "Executed" });
+                });
+            }
+
+            if (tools.length === 0) {
+                toolsTable.innerHTML = `
+                    <tr>
+                        <td colspan="2" style="color: var(--color-text-muted); text-align: center;">No tools executed.</td>
+                    </tr>
+                `;
+            } else {
+                toolsTable.innerHTML = "";
+                tools.forEach(t => {
+                    const row = document.createElement("tr");
+                    row.innerHTML = `
+                        <td style="font-family: var(--font-mono); font-size: 12px; color: #fcd34d;">${t.name}</td>
+                        <td style="text-align: right; font-family: var(--font-mono); font-size: 11px;">${t.size}</td>
+                    `;
+                    toolsTable.appendChild(row);
+                });
+            }
+        }
+
+        // Clean Memory VRAM
+        async function cleanVRAM() {
+            const btn = document.getElementById("btn-clean-mem");
+            const spinner = document.getElementById("clean-spinner");
+            
+            btn.disabled = true;
+            spinner.classList.add("spinner");
+            
+            try {
+                const res = await fetch(`${API_BASE}/api/clean-mem`, { method: "POST" });
+                const result = await res.json();
+                
+                if (result.success) {
+                    showToast("GPU Memory and VRAM cleared successfully!");
+                    // Reload sessions to refresh stats
+                    await loadSessions();
+                    if (activeSessionId) {
+                        await selectSession(activeSessionId, activeSessionAgent);
+                    }
+                } else {
+                    showToast("Failed to clean memory: " + result.message, "danger");
+                }
+            } catch (err) {
+                console.error("Clean VRAM error:", err);
+                showToast("Connection to clean API failed", "danger");
+            } finally {
+                btn.disabled = false;
+                spinner.classList.remove("spinner");
+            }
+        }
+
+        // Generate AI Bridge Summary
+        async function generateAIBridge() {
+            if (!activeSessionId || !activeSessionAgent) return;
+            
+            const btn = document.getElementById("btn-generate-ai-bridge");
+            const icon = btn.querySelector("i");
+            const textSpan = btn.querySelector("span");
+            
+            btn.disabled = true;
+            textSpan.innerText = "Analyzing Session...";
+            
+            try {
+                const res = await fetch(`${API_BASE}/api/generate-bridge?id=${activeSessionId}&agent=${activeSessionAgent}&use_llm=true`, {
+                    method: "POST"
+                });
+                const result = await res.json();
+                
+                if (result.error) {
+                    showToast("AI generation failed: " + result.error, "danger");
+                    return;
+                }
+                
+                document.getElementById("bridge-content").innerText = result.bridge_summary;
+                showToast("Context Bridge updated with AI summary!");
+            } catch (err) {
+                console.error("Failed to generate AI bridge:", err);
+                showToast("Ollama server unreachable", "danger");
+            } finally {
+                btn.disabled = false;
+                textSpan.innerText = "Generate AI Summary";
+            }
+        }
+
+        // Copy bridge summary to clipboard
+        function copyBridgeSummary() {
+            const text = document.getElementById("bridge-content").innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                showToast("Context Bridge copied to clipboard!");
+                
+                const icon = document.getElementById("copy-icon");
+                icon.setAttribute("data-lucide", "check");
+                lucide.createIcons();
+                
+                setTimeout(() => {
+                    icon.setAttribute("data-lucide", "copy");
+                    lucide.createIcons();
+                }, 2000);
+            }).catch(err => {
+                showToast("Failed to copy", "danger");
+            });
+        }
+
+        // Setup Event Listeners
+        document.getElementById("btn-clean-mem").onclick = cleanVRAM;
+        document.getElementById("btn-generate-ai-bridge").onclick = generateAIBridge;
+        document.getElementById("btn-copy-bridge").onclick = copyBridgeSummary;
+
+        // Initialize App
+        window.onload = async () => {
+            await loadSessions();
+            lucide.createIcons();
+            
+            // Poll sessions status in background every 10 seconds to maintain real-time feel
+            setInterval(loadSessions, 10000);
+        };
+    </script>
+</body>
+</html>

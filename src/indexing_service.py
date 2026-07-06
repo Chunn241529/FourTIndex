@@ -131,6 +131,14 @@ class IndexingService:
                 self.manifest.remove_store(project, previous_store)
 
         self.database.save_project_path(project_name, root)
+        
+        # Save project structure roadmap in registry.db
+        try:
+            tree, signatures = self.database.build_project_roadmap(root)
+            self.database.save_project_roadmap(project_name, tree, signatures)
+        except Exception as e:
+            sys.stderr.write(f"Warning: Failed to save project roadmap: {e}\n")
+
         result.requests = provider.request_count
         result.tokens = provider.token_count
         result.duration_seconds = time.perf_counter() - started_at
@@ -269,12 +277,16 @@ class IndexingService:
         files = store["files"]
         for record in records:
             digest = hashlib.sha256(record.relative_path.encode("utf-8")).hexdigest()[:16]
+            file_ext = os.path.splitext(record.relative_path)[1].lower()
+            from src.indexer import EXTENSION_TO_LANGUAGE
+            lang = EXTENSION_TO_LANGUAGE.get(file_ext, "generic")
             metadata_base = {
                 "project_id": project["project_id"],
                 "project_name": result.project_name,
                 "file_path": record.relative_path,
                 "file_name": os.path.basename(record.relative_path),
-                "file_ext": os.path.splitext(record.relative_path)[1].lower(),
+                "file_ext": file_ext,
+                "language": lang,
                 "hash": record.content_hash,
             }
             for index, (chunk, embedding) in enumerate(

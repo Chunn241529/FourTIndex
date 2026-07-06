@@ -10,3 +10,5 @@ This codebase is indexed locally via **fourTindex** (an MCP server & local vecto
 4. **Update DB after edits:** If you modify any code file, you MUST call `index_project` (or run CLI `fourtindex index .`) to update the vector database instantly (takes <1s due to 16x batch and incremental sync).
 5. **Free memory when done:** Call `clean_mem()` tool (or run CLI `fourtindex clean-mem`) when you are done with heavy vector searches or indexing, to release VRAM and RAM immediately and save system resources.
 6. **Save design history:** Call `save_session_summary` before concluding a task to log your design decisions in the database.
+7. **DO NOT SKIP STEPS / CRITICAL INSTRUCTIONS:** You are strictly prohibited from skipping steps under any circumstances. You must perform each stage of the development process (Research -> Design -> Implementation -> Deep Scan & Verification -> Re-index -> Memory Cleanup -> Session Summary) fully and sequentially. Always run the mandatory Deep Scan checks before declaring a task complete.
+
