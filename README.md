@@ -359,8 +359,8 @@ This codebase is indexed locally via **FourTIndex** (an MCP server & local vecto
 <hr/>
 
 <p align="center">
-  <b>🇻🇳 Dành cho Lập trình viên Việt Nam (Vietnamese Backers)</b><br/>
-  Bạn có thể mời tác giả một ly cà phê qua chuyển khoản ngân hàng nhanh (VietQR) dưới đây:
+  <b>🇻🇳 Vietnamese Backers 🇻🇳</b><br/>
+  Anh/chị có thể mời em một ly cà phê qua chuyển khoản ngân hàng nhanh (VietQR) dưới đây:
 </p>
 
 <div align="center">
