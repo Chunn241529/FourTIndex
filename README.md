@@ -345,13 +345,9 @@ This codebase is indexed locally via **FourTIndex** (an MCP server & local vecto
 </p>
 
 <p align="center">
-  <a href="https://github.com/sponsors/Chunn241529" target="_blank">
-    <img src="https://img.shields.io/badge/GitHub%20Sponsors-ea4aaa?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="GitHub Sponsors" />
-  </a>
+  <a href="https://github.com/sponsors/Chunn241529" target="_blank"><img src="https://img.shields.io/badge/GitHub%20Sponsors-ea4aaa?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="GitHub Sponsors" /></a>
   &nbsp;&nbsp;
-  <a href="https://paypal.me/TrungVuong24/5USD" target="_blank">
-    <img src="https://img.shields.io/badge/Donate%20via%20PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white" alt="PayPal" />
-  </a>
+  <a href="https://paypal.me/TrungVuong24/5USD" target="_blank"><img src="https://img.shields.io/badge/Donate%20via%20PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white" alt="PayPal" /></a>
 </p>
 
 <p align="center">
