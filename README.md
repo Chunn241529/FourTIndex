@@ -300,6 +300,8 @@ Add the following to `%APPDATA%\Claude\claude_desktop_config.json` on Windows (o
   - Returns the full implementation body for **Functions**, and outlines for **Classes**.
 * **`read_code_lines(file_path: str, start_line: int, end_line: int, project_name: str) -> str`**
   - Reads physical lines. Resolves relative paths automatically.
+* **`index_project(project_path: str, project_name: str, rebuild: bool, force: bool) -> str`**
+  - Indexes or incrementally syncs a project's codebase, generating code embeddings and updating the registry directory tree structure.
 * **`get_project_roadmap(project_name: str) -> str`**
   - **[New]** Retrieves the full JSON structural overview and detected frameworks.
 * **`list_projects() -> str`**
