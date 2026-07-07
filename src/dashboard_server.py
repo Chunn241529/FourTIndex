@@ -176,6 +176,30 @@ class DashboardHTTPHandler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 self.send_json({"error": f"Error performing audit: {str(e)}"}, status=500)
 
+        elif path == "/api/lmstudio/models":
+            try:
+                from src.lmstudio_client import LMStudioClient
+                client = LMStudioClient(self.config)
+                res = client.list_models()
+                if "error" in res:
+                    self.send_json(res, status=500)
+                else:
+                    self.send_json(res)
+            except Exception as e:
+                self.send_json({"error": str(e)}, status=500)
+
+        elif path == "/api/lmstudio/download/status":
+            try:
+                from src.lmstudio_client import LMStudioClient
+                client = LMStudioClient(self.config)
+                res = client.get_download_status()
+                if "error" in res:
+                    self.send_json(res, status=500)
+                else:
+                    self.send_json(res)
+            except Exception as e:
+                self.send_json({"error": str(e)}, status=500)
+
         else:
             self.send_response(404)
             self.end_headers()
@@ -233,6 +257,49 @@ class DashboardHTTPHandler(http.server.BaseHTTPRequestHandler):
 
                 bridge_summary = generate_local_bridge(audit_data, self.config, use_llm=use_llm)
                 self.send_json({"bridge_summary": bridge_summary})
+            except Exception as e:
+                self.send_json({"error": str(e)}, status=500)
+        elif path in ("/api/lmstudio/load", "/api/lmstudio/unload", "/api/lmstudio/download", "/api/lmstudio/chat"):
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(content_length).decode('utf-8')
+                data = json.loads(body) if body else {}
+                
+                from src.lmstudio_client import LMStudioClient
+                client = LMStudioClient(self.config)
+                
+                if path == "/api/lmstudio/load":
+                    model = data.get("model")
+                    if not model:
+                        self.send_json({"error": "Missing 'model' parameter"}, status=400)
+                        return
+                    ctx_len = data.get("context_length")
+                    res = client.load_model(model, context_length=ctx_len, extra_config=data.get("extra_config"))
+                elif path == "/api/lmstudio/unload":
+                    model = data.get("model")
+                    if not model:
+                        self.send_json({"error": "Missing 'model' parameter"}, status=400)
+                        return
+                    res = client.unload_model(model)
+                elif path == "/api/lmstudio/download":
+                    model = data.get("model")
+                    if not model:
+                        self.send_json({"error": "Missing 'model' parameter"}, status=400)
+                        return
+                    res = client.download_model(model)
+                else: # /api/lmstudio/chat
+                    model = data.get("model")
+                    message = data.get("message")
+                    if not model or not message:
+                        self.send_json({"error": "Missing 'model' or 'message' parameter"}, status=400)
+                        return
+                    ctx_len = data.get("context_length")
+                    res = client.chat(model, message, context_length=ctx_len)
+                
+                if "error" in res:
+                    self.send_json(res, status=500)
+                else:
+                    self.send_json(res)
             except Exception as e:
                 self.send_json({"error": str(e)}, status=500)
         else:

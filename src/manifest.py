@@ -47,9 +47,8 @@ class IndexManifest:
         canonical_path = os.path.normcase(os.path.realpath(project_path))
         project = self.data["projects"].get(project_name)
         if project and project["path"] != canonical_path:
-            raise ValueError(
-                f"Project name '{project_name}' is already registered for {project['path']}"
-            )
+            project["path"] = canonical_path
+            self.save()
         if not project:
             project_id = hashlib.sha256(
                 f"{project_name}\0{canonical_path}".encode("utf-8")

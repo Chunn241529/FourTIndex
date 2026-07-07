@@ -30,23 +30,35 @@ class EmbeddingManager:
         return provider
 
     def provider_statuses(self, check: bool = False) -> list[dict]:
-        provider = create_provider("ollama", self.config)
-        state = "configured"
-        if check:
+        active_provider = self.config.llm_provider.lower()
+        statuses = []
+        
+        for name in ("ollama", "lmstudio"):
             try:
-                provider.health_check()
-                state = "ready"
-            except ProviderError as exc:
-                state = str(exc)
-        return [
-            {
-                "provider": provider.name,
-                "model": provider.model,
-                "dimension": provider.dimension or "auto",
-                "state": state,
-                "enabled": True,
-            }
-        ]
+                provider = create_provider(name, self.config)
+                state = "configured"
+                if check:
+                    try:
+                        provider.health_check()
+                        state = "ready"
+                    except ProviderError as exc:
+                        state = str(exc)
+                statuses.append({
+                    "provider": provider.name,
+                    "model": provider.model,
+                    "dimension": provider.dimension or "auto",
+                    "state": state,
+                    "enabled": (name == active_provider),
+                })
+            except Exception as e:
+                statuses.append({
+                    "provider": name,
+                    "model": "unknown",
+                    "dimension": "auto",
+                    "state": f"error: {e}",
+                    "enabled": (name == active_provider),
+                })
+        return statuses
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         if not self.provider:

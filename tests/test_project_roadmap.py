@@ -54,3 +54,58 @@ def test_build_project_roadmap(tmp_path):
     projects = db.list_projects()
     project_names = {p["project_name"] for p in projects}
     assert "my_project" in project_names
+
+
+def test_truncate_tree():
+    from src.mcp_server import truncate_tree
+    
+    # Root (depth 0)
+    #   - child1 (depth 1)
+    #     - grandchild1 (depth 2)
+    #       - great_grandchild1 (depth 3)
+    #         - leaf (depth 4)
+    tree = {
+        "name": "root",
+        "type": "directory",
+        "children": [
+            {
+                "name": "child1",
+                "type": "directory",
+                "children": [
+                    {
+                        "name": "grandchild1",
+                        "type": "directory",
+                        "children": [
+                            {
+                                "name": "great_grandchild1",
+                                "type": "directory",
+                                "children": [
+                                    {
+                                        "name": "leaf",
+                                        "type": "file",
+                                        "children": []
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+    
+    # Truncate at depth 2
+    truncated = truncate_tree(tree, max_depth=2)
+    
+    # Root (depth 0) -> child1 (depth 1) -> grandchild1 (depth 2) -> children truncated
+    assert truncated["name"] == "root"
+    child = truncated["children"][0]
+    assert child["name"] == "child1"
+    grandchild = child["children"][0]
+    assert grandchild["name"] == "grandchild1"
+    
+    # Grandchild children should be truncated placeholder
+    assert len(grandchild["children"]) == 1
+    assert grandchild["children"][0]["type"] == "truncated"
+    assert "truncated" in grandchild["children"][0]["name"]
+

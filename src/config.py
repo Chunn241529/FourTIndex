@@ -46,9 +46,10 @@ class Config:
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             config_path = os.path.join(project_root, "config.yaml")
 
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.config_path = os.path.abspath(config_path)
         env_path = os.environ.get("FOURTINDEX_ENV_FILE") or os.path.join(
-            os.path.dirname(self.config_path), ".env"
+            project_root, ".env"
         )
         load_dotenv(env_path, override=False)
         self.data = {}
@@ -129,8 +130,37 @@ class Config:
         return self.data.get("ollama", {}).get("llm_model", "qwen2.5-coder:7b")
 
     @property
+    def llm_provider(self) -> str:
+        return os.environ.get("LLM_PROVIDER") or self.data.get("provider", "ollama")
+
+    @property
+    def lmstudio_host(self) -> str:
+        return os.environ.get("LMSTUDIO_HOST") or self.data.get("lmstudio", {}).get(
+            "host", "http://127.0.0.1:2401"
+        )
+
+    @property
+    def lmstudio_llm_model(self) -> str:
+        return os.environ.get("LMSTUDIO_LLM_MODEL") or self.data.get("lmstudio", {}).get(
+            "llm_model", "monas"
+        )
+
+    @property
+    def lmstudio_embedding_model(self) -> str:
+        return os.environ.get("LMSTUDIO_EMBEDDING_MODEL") or self.data.get("lmstudio", {}).get(
+            "embedding_model", "text-embedding-qwen3-embedding-0.6b"
+        )
+
+    @property
+    def lmstudio_api_token(self) -> str:
+        return os.environ.get("LMSTUDIO_API_TOKEN") or self.data.get("lmstudio", {}).get(
+            "api_token", ""
+        )
+
+
+    @property
     def embedding_provider_chain(self) -> list[str]:
-        return ["ollama"]
+        return [self.llm_provider]
 
     @property
     def embedding_batch_size(self) -> int:
@@ -176,4 +206,23 @@ class Config:
             return float(val)
         except (TypeError, ValueError):
             return 0.50
+
+    @property
+    def guard_interval(self) -> int:
+        return self._int_value("budget", "guard_interval", 5)
+
+    @property
+    def rerank_enabled(self) -> bool:
+        return bool(self.data.get("rerank", {}).get("enabled", True))
+
+    @property
+    def rerank_model(self) -> str:
+        return os.environ.get("RERANK_MODEL") or self.data.get("rerank", {}).get(
+            "model", "qwen3-reranker-0.6b"
+        )
+
+    @property
+    def rerank_candidates_limit(self) -> int:
+        return max(1, self._int_value("rerank", "candidates_limit", 15))
+
 

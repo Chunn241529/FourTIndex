@@ -127,3 +127,41 @@ def test_codex_subagent_sessions_are_excluded(tmp_path, monkeypatch):
     sessions = token_meter.discover_codex_sessions()
 
     assert [session.path for session in sessions] == [str(primary)]
+
+
+def test_parse_antigravity_transcript_ignoring_history(tmp_path):
+    transcript = tmp_path / "antigravity.jsonl"
+    _write_jsonl(
+        transcript,
+        [
+            {
+                "type": "USER_INPUT",
+                "source": "USER_EXPLICIT",
+                "content": "Hello",
+            },
+            {
+                "type": "CONVERSATION_HISTORY",
+                "source": "SYSTEM",
+                "content": "A very large conversation history",
+            },
+            {
+                "type": "PLANNER_RESPONSE",
+                "source": "MODEL",
+                "content": "Model response",
+            },
+            {
+                "type": "VIEW_FILE",
+                "source": "MODEL",
+                "content": "File content that is long",
+            },
+        ],
+    )
+
+    usage = token_meter.parse_antigravity_transcript(str(transcript), "test-session")
+
+    assert usage.agent == "antigravity"
+    # "Hello" (5 chars / 4 = 1 token) + "File content that is long" (25 chars / 4 = 6 tokens) = 7 tokens for prompt.
+    # Note: "A very large conversation history" is ignored.
+    assert usage.total_prompt == 7
+    # "Model response" (14 chars / 4 = 3 tokens) = 3 tokens for completion.
+    assert usage.total_completion == 3

@@ -290,7 +290,7 @@ class Database:
 
     def save_project_path(self, project_name: str, project_path: str):
         """Saves the mapping of project_name to its absolute project_path."""
-        registry_path = os.path.join(os.path.dirname(self.config.db_persist_directory), "project_registry.json")
+        registry_path = os.path.expanduser("~/.fourtindex/project_registry.json")
         data = {}
         if os.path.exists(registry_path):
             try:
@@ -307,7 +307,7 @@ class Database:
 
     def get_project_path(self, project_name: str) -> str | None:
         """Retrieves the absolute path for a given project_name."""
-        registry_path = os.path.join(os.path.dirname(self.config.db_persist_directory), "project_registry.json")
+        registry_path = os.path.expanduser("~/.fourtindex/project_registry.json")
         if os.path.exists(registry_path):
             try:
                 with open(registry_path, "r", encoding="utf-8") as f:

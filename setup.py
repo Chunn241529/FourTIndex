@@ -1,4 +1,4 @@
-from setuptools import setup, find_packages
+from setuptools import setup, find_packages, find_namespace_packages
 
 setup(
     name="fourtindex",
@@ -6,7 +6,7 @@ setup(
     description="Local Codebase Indexer & MCP Assistant",
     author="trung",
     py_modules=["main"],
-    packages=find_packages(),
+    packages=find_namespace_packages(include=["src", "src.*"]),
     package_data={
         "src": ["config.yaml", "dashboard/index.html"],
     },

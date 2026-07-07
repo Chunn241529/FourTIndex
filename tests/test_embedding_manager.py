@@ -31,4 +31,4 @@ def test_provider_chain_is_always_local(monkeypatch):
 
     config = Config("missing-config.yaml")
 
-    assert config.embedding_provider_chain == ["ollama"]
+    assert config.embedding_provider_chain == [config.llm_provider]

@@ -22,14 +22,33 @@ project:
     - ".json"
     - ".md"
     - ".txt"
+    - ".rs"
+    - ".go"
+    - ".java"
+    - ".kt"
+    - ".swift"
+    - ".cs"
+    - ".cpp"
+    - ".h"
+    - ".gd"
+    - ".lua"
 
 database:
   persist_directory: "./.fourtindex/db"
 
+provider: "lmstudio"
+
 ollama:
   host: "http://localhost:11434"
   embedding_model: "qwen3-embedding:0.6b"
-  llm_model: "qwen2.5-coder:7b"
+  llm_model: "monas"
+
+lmstudio:
+  host: "http://127.0.0.1:2401"
+  llm_model: "monas"
+  embedding_model: "text-embedding-qwen3-embedding-0.6b"
+  api_token: ""
+
 
 embedding:
   batch_size: 64
@@ -42,3 +61,9 @@ indexing:
   max_file_size_bytes: 2097152
   respect_gitignore: true
   exclude_globs: []
+
+rerank:
+  enabled: true
+  model: "qwen3-reranker-0.6b"
+  candidates_limit: 15
+

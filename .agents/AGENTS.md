@@ -2,6 +2,9 @@
 
 This codebase is indexed locally via **fourTindex** (an MCP server & local vector indexer). You MUST use fourTindex tools to navigate, search, and inspect the codebase.
 
+## 🚨 CRITICAL: MANDATORY FIRST STEP FOR ALL TASKS
+On the very first turn of any task, you MUST inspect the `.agents/skills/` directory to locate the project's skill directory (for this codebase, it is `.agents/skills/FourTIndex/SKILL.md`), and call `view_file` on its `SKILL.md` (or use `read_skill_section` / `get_skill_outline`) to load the optimal query and context management guidelines. This step is STRICTLY MANDATORY and cannot be skipped under any circumstances. You must explicitly state in your first response that you have read and loaded the skill instructions.
+
 ## Directives for Agent LLM:
 1. **Do not dump directories:** Instead of listing files or reading entire folders, always use `search_codebase` to search semantically. Use the `file_ext` filter (e.g. `".py"`) to exclude noise like READMEs or config files if you only need code.
 2. **Read structurally first:** Call `get_file_outline` to read class/function signatures of a file before fetching its implementation.

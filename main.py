@@ -30,7 +30,29 @@ from src.indexing_service import IndexOptions, IndexingService, load_project_con
 
 console = Console()
 
+def inject_agent_skill():
+    """Automatically injects the FourTIndex SKILL.md into the current working directory's .agents folder."""
+    try:
+        import shutil
+        cwd = os.getcwd()
+        if "system32" in cwd.lower() or cwd.lower().endswith("windows"):
+            return
+            
+        target_dir = os.path.join(cwd, ".agents", "skills", "FourTIndex")
+        target_file = os.path.join(target_dir, "SKILL.md")
+        
+        if not os.path.exists(target_file):
+            package_dir = os.path.dirname(os.path.abspath(__file__))
+            template_file = os.path.join(package_dir, "src", "templates", "SKILL.md")
+            
+            if os.path.exists(template_file):
+                os.makedirs(target_dir, exist_ok=True)
+                shutil.copy2(template_file, target_file)
+    except Exception as e:
+        sys.stderr.write(f"Warning: Failed to inject agent skill: {e}\n")
+
 def cmd_index(args):
+    inject_agent_skill()
     config = Config()
     service = IndexingService(config)
     
@@ -87,16 +109,29 @@ def cmd_search(args):
             
         db, manager, project, store = load_project_context(config, project_name)
         query_vector = manager.embed_query(args.query)
-        results = db.search_project_code(
-            project["project_id"], store["store_id"], query_vector, args.limit, formatted_ext
-        )
+        
+        if config.rerank_enabled:
+            candidates = db.search_project_code(
+                project["project_id"], store["store_id"], query_vector, config.rerank_candidates_limit, formatted_ext
+            )
+            if candidates:
+                from src.reranker import LocalReranker
+                reranker = LocalReranker(config)
+                results = reranker.rerank(args.query, candidates, top_k=args.limit)
+            else:
+                results = []
+        else:
+            results = db.search_project_code(
+                project["project_id"], store["store_id"], query_vector, args.limit, formatted_ext
+            )
         
         if not results:
             console.print("[yellow]No matching code chunks found.[/yellow]")
             return
             
+        score_column_name = "Rerank Score" if config.rerank_enabled else "Score"
         table = Table(title="Semantic Search Results")
-        table.add_column("Score", justify="right", style="green", width=8)
+        table.add_column(score_column_name, justify="right", style="green", width=12)
         table.add_column("File & Line Range", style="cyan")
         table.add_column("Symbol / Context", style="magenta")
         
@@ -104,7 +139,8 @@ def cmd_search(args):
             meta = r["metadata"]
             symbol = meta.get("symbol_name") or f"Chunk ({meta.get('chunk_type')})"
             file_line = f"{meta.get('file_path')}:{meta.get('start_line')}-{meta.get('end_line')}"
-            table.add_row(f"{r['score']:.4f}", file_line, symbol)
+            score_val = r.get("rerank_score", r["score"])
+            table.add_row(f"{score_val:.4f}", file_line, symbol)
             
         console.print(table)
         
@@ -127,9 +163,23 @@ def cmd_query(args):
     try:
         db, manager, project, store = load_project_context(config, project_name)
         query_vector = manager.embed_query(args.question)
-        results = db.search_project_code(
-            project["project_id"], store["store_id"], query_vector, args.limit
-        )
+        
+        if config.rerank_enabled:
+            console.print(f"[cyan]   Retrieving {config.rerank_candidates_limit} candidates for reranking...[/cyan]")
+            candidates = db.search_project_code(
+                project["project_id"], store["store_id"], query_vector, config.rerank_candidates_limit
+            )
+            if candidates:
+                console.print(f"[cyan]   Reranking candidates using '{config.rerank_model}'...[/cyan]")
+                from src.reranker import LocalReranker
+                reranker = LocalReranker(config)
+                results = reranker.rerank(args.question, candidates, top_k=args.limit)
+            else:
+                results = []
+        else:
+            results = db.search_project_code(
+                project["project_id"], store["store_id"], query_vector, args.limit
+            )
         
         if not results:
             console.print("[yellow]No relevant codebase context found.[/yellow]")
@@ -138,13 +188,15 @@ def cmd_query(args):
         context_parts = []
         for r in results:
             meta = r["metadata"]
+            score_str = f" | Rerank Score: {r['rerank_score']:.4f}" if "rerank_score" in r else ""
             context_parts.append(
-                f"File: {meta.get('file_path')} (Lines {meta.get('start_line')}-{meta.get('end_line')})\n"
+                f"File: {meta.get('file_path')} (Lines {meta.get('start_line')}-{meta.get('end_line')}{score_str})\n"
                 f"```\n{r['content']}\n```"
             )
         context = "\n\n".join(context_parts)
         
-        console.print(f"[cyan]2. Querying local LLM '{config.ollama_llm_model}'...[/cyan]")
+        active_llm_model = config.lmstudio_llm_model if config.llm_provider == "lmstudio" else config.ollama_llm_model
+        console.print(f"[cyan]2. Querying local LLM '{active_llm_model}'...[/cyan]")
         answer = llm.generate_answer(args.question, context)
         
         console.print("\n[bold green]Response:[/bold green]")
@@ -245,10 +297,39 @@ def cmd_setup_ollama(args):
     from src.setup_ollama import run_setup
     run_setup()
 
+def cmd_setup_lmstudio(args):
+    from src.setup_lmstudio import run_setup as run_lmstudio_setup
+    run_lmstudio_setup()
+
 def cmd_clean_mem(args):
-    from src.setup_ollama import unload_models
-    unload_models()
-    print("Successfully unloaded all models from Ollama VRAM/RAM.")
+    config = Config()
+    provider = config.llm_provider.lower()
+    
+    if provider == "lmstudio":
+        try:
+            from src.lmstudio_client import LMStudioClient
+            client = LMStudioClient(config)
+            models = [
+                getattr(config, "lmstudio_embedding_model", ""),
+                getattr(config, "lmstudio_llm_model", "")
+            ]
+            unloaded_list = []
+            for model in models:
+                if model:
+                    res = client.unload_model(model)
+                    if "error" not in res:
+                        unloaded_list.append(model)
+            if unloaded_list:
+                print(f"Successfully unloaded model(s) '{', '.join(unloaded_list)}' from LM Studio.")
+            else:
+                print("No configured models were actively loaded in LM Studio to unload.")
+        except Exception as e:
+            print(f"Error unloading models from LM Studio: {e}")
+    else:
+        from src.setup_ollama import unload_models
+        unload_models()
+        print("Successfully unloaded all models from Ollama VRAM/RAM.")
+        
     try:
         from src.token_meter import evaluate_latest_session
         print(evaluate_latest_session())
@@ -277,6 +358,7 @@ def cmd_providers(args):
     console.print(table)
 
 def cmd_mcp(args):
+    inject_agent_skill()
     # Import inside function to avoid starting it during argparse setup
     from src.mcp_server import mcp
     mcp.run()
@@ -333,6 +415,10 @@ def main():
     # setup-ollama command
     p_setup_ollama = subparsers.add_parser("setup-ollama", help="Verify Ollama installation and pull required models")
     p_setup_ollama.set_defaults(func=cmd_setup_ollama)
+    
+    # setup-lmstudio command
+    p_setup_lmstudio = subparsers.add_parser("setup-lmstudio", help="Verify LM Studio connectivity, load models, and set as active provider")
+    p_setup_lmstudio.set_defaults(func=cmd_setup_lmstudio)
     
     # clean-mem command
     p_clean_mem = subparsers.add_parser("clean-mem", help="Unload Ollama models to free VRAM and RAM memory")

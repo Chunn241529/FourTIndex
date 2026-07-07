@@ -12,6 +12,7 @@
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.9+-emerald.svg" alt="Python 3.9+"></a>
   <a href="https://ollama.com/"><img src="https://img.shields.io/badge/Ollama-Local%20LLM-pink.svg" alt="Ollama"></a>
+  <a href="https://lmstudio.ai/"><img src="https://img.shields.io/badge/LM%20Studio-Local%20LLM-blue.svg" alt="LM Studio"></a>
   <a href="https://www.trychroma.com/"><img src="https://img.shields.io/badge/ChromaDB-Vector%20Store-orange.svg" alt="ChromaDB"></a>
   <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/MCP-Protocol-blueviolet.svg" alt="MCP"></a>
 </p>
@@ -89,9 +90,12 @@ graph TD
 
 ## ✨ Key Features
 
+- **📦 Localized Databases:** Vector databases are now isolated locally within each project (`.fourtindex/db`) for perfect separation, while project metadata remains mapped in a global registry.
+- **✨ Zero-Config AI Skill Auto-Injection:** Automatically injects the FourTIndex `SKILL.md` guidelines into `.agents/skills/FourTIndex/` whenever you start the MCP server, instantly teaching your AI agents how to use the local context tools.
 - **⚡ Project-wide Batch Embeddings:** Packs chunks from multiple files into provider-aware batches.
 - **🔄 Resumable Incremental Sync:** Checkpoints successful files and only re-indexes changed content.
-- **🔒 Local Embeddings:** Keeps source code local with Ollama-only embeddings.
+- **🧠 LM Studio & Ollama Unified Routing:** Dynamically choose between Ollama and LM Studio for embeddings and LLM completions.
+- **🎯 Local & API Reranking:** Perform relevance ranking locally (or via LM Studio active models in <50ms) to deliver highly accurate context while saving token usage.
 - **🌲 Omni-Language AST Walking:** Standardized tree-sitter walker that extracts classes, methods, functions, and scoping across multiple target languages.
 - **🗺️ Automatic Project Roadmaps:** Traverses directory structures, prunes ignored folders, detects project framework signatures, and stores roadmaps inside a central SQLite registry database.
 - **📝 Heading-Aware Markdown Splitting:** Dedicated parser for customization `SKILL.md` folders that extracts YAML frontmatter and splits instructions by H2/H3 headers.
@@ -148,17 +152,23 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-### 2. Auto-setup Ollama & Models
+### 2. Auto-setup Ollama or LM Studio & Models
 
-Make sure Ollama is running locally, then pull the required models:
+Make sure your local provider service is running, then pull/configure the required models:
 
-```bash
-fourtindex setup-ollama
-```
+* **For Ollama:**
+  ```bash
+  fourtindex setup-ollama
+  ```
+* **For LM Studio:**
+  Ensure the required models (e.g. `qwen3-reranker-0.6b` and `text-embedding-qwen3-embedding-0.6b`) are loaded or added, then run:
+  ```bash
+  fourtindex setup-lmstudio
+  ```
 
-### 3. Verify Ollama
+### 3. Verify Providers
 
-Verify the local embedding service:
+Verify the local embedding status:
 
 ```bash
 fourtindex providers --check
@@ -170,6 +180,9 @@ fourtindex providers --check
 # Index the current directory
 fourtindex index .
 ```
+
+> [!WARNING]
+> **First-Time Indexing Duration**: The initial indexing of a project generates embeddings for all code chunks and may take some time depending on your codebase size and local Ollama GPU/CPU hardware performance. Subsequent runs are incremental and complete in less than a second as only modified files are processed.
 
 ---
 
@@ -254,12 +267,13 @@ python benchmarks/run_benchmark.py
 | Command                    | Arguments                      | Description                                            |
 | :------------------------- | :----------------------------- | :----------------------------------------------------- |
 | `fourtindex index`         | `[path]`                       | Indexes or resumes indexing the target codebase.       |
-| `fourtindex providers`     | `[--check]`                    | Shows the local Ollama embedding status.               |
-| `fourtindex search`        | `"<query>"` `[--file-ext EXT]` | Performs semantic codebase search.                     |
-| `fourtindex query`         | `"<question>"`                 | Queries the local LLM about the codebase.              |
+| `fourtindex providers`     | `[--check]`                    | Shows the local embedding provider status.             |
+| `fourtindex search`        | `"<query>"` `[--file-ext EXT]` | Performs semantic codebase search with reranking.      |
+| `fourtindex query`         | `"<question>"`                 | Queries the local LLM with reranked context.           |
 | `fourtindex index-skill`   | `<path_to_skill>`              | Indexes custom agent guidelines (`SKILL.md`).          |
 | `fourtindex search-skills` | `"<query>"`                    | Semantically searches indexed customization skills.    |
 | `fourtindex setup-ollama`  | _None_                         | Verifies Ollama connection and pulls default models.   |
+| `fourtindex setup-lmstudio`| _None_                         | Verifies LM Studio connection, loads models, sets active.|
 | `fourtindex clean-mem`     | _None_                         | Unloads models and prints token evaluation report.     |
 | `fourtindex mcp`           | _None_                         | Launches the stdio MCP server for client integrations. |
 
@@ -329,21 +343,35 @@ Add the following to `%APPDATA%\Claude\claude_desktop_config.json` on Windows (o
 
 ## 🤖 Agent Customization Rules
 
-To force your AI Coding Agents to always use `FourTIndex` instead of dumping files, place a `.cursorrules` or `.agents/AGENTS.md` file in your workspace with these directives:
+**FourTIndex features Zero-Config Skill Injection.** Whenever you run `fourtindex index` or `fourtindex mcp` in a new project, it will automatically copy the `SKILL.md` documentation into `.agents/skills/FourTIndex/SKILL.md`. This allows Antigravity agents (and other compatible systems) to automatically discover the tool's capabilities.
+
+To enforce your AI Coding Agents to **always** use `FourTIndex` instead of standard file dumping, add the following rules.
+
+### Global Enforcements (Recommended)
+If you want to apply this rule across **all** your projects globally, append the markdown snippet below to your global agent configurations:
+- **Antigravity:** `~/.gemini/config/AGENTS.md`
+- **Cursor/Claude:** Add to your global system prompt or master `.cursorrules`.
+
+### Project-Scoped Enforcements
+To enforce it for a single project only, place the snippet into:
+- **Antigravity:** `.agents/AGENTS.md`
+- **Cursor:** `.cursorrules`
 
 ```markdown
 # Local Context Retrieval Rules
 
 This codebase is indexed locally via **FourTIndex** (an MCP server & local vector indexer). You MUST use FourTIndex tools to navigate, search, and inspect the codebase.
 
-## Directives:
+| Scenario / Action | Allowed Tool(s) | Strict Prohibition (DO NOT DO) | Rationale |
+| :--- | :--- | :--- | :--- |
+| **Directory Navigation** | `list_projects`, `get_project_roadmap` | `find`, `ls`, or recursive file lists | Prevents context bloating with directory tree dumps. |
+| **Codebase Search** | `search_codebase` (use `file_ext` filter) | Dumping files or large text searches | Maintains target accuracy and avoids noise. |
+| **File Outline** | `get_file_outline` | Reading the entire file | Scans structure first to target modifications. |
+| **Read Implementation** | `get_symbol_definition`, `read_code_lines` | Reading the whole file | Focuses context only on the exact code area. |
+| **Post-Edit Sync** | `index_project` (or CLI `fourtindex index .`) | Skipping database re-index | Keeps vector DB instantly updated (<1s). |
+| **Resource Optimization** | `clean_mem` | Leaving model loaded in VRAM | Immediately frees RAM and GPU VRAM resources. |
+| **Task Conclusion** | `save_session_summary` | Leaving session without summary | Logs design decisions for context bridges. |
 
-1. **Do not dump directories:** Instead of listing files or reading entire folders, always use `search_codebase` to search semantically. Use the `file_ext` filter (e.g. `".py"`) to exclude noise.
-2. **Read structurally first:** Call `get_file_outline` to read class/function signatures of a file before fetching its implementation.
-3. **Read narrow scopes:** Use `get_symbol_definition` or `read_code_lines` to read specific code blocks. Do not read the entire file if you only need a single function.
-4. **Update DB after edits:** If you modify any code file, you MUST call `index_project` (or run CLI `fourtindex index .`) to update the vector database instantly (takes <1s due to 16x batch and incremental sync).
-5. **Free memory when done:** Call `clean_mem()` tool (or run CLI `fourtindex clean-mem`) when you are done with heavy vector searches or indexing, to release VRAM and RAM immediately.
-6. **Save design history:** Call `save_session_summary` before concluding a task to log your design decisions.
 ```
 
 ---

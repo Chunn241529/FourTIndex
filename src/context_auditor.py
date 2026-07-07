@@ -18,12 +18,11 @@ def parse_tool_calls_and_files(record: dict) -> Tuple[List[str], List[Dict[str, 
         name = call.get("name") or ""
         tool_calls.append(name)
         
-    source = record.get("source") or ""
     rec_type = record.get("type") or ""
     content = record.get("content") or ""
     
     # Classify tool outputs
-    if source != "MODEL" and rec_type not in ("USER_INPUT", "CONVERSATION_HISTORY"):
+    if rec_type not in ("USER_INPUT", "PLANNER_RESPONSE", "CONVERSATION_HISTORY", "SYSTEM_MESSAGE"):
         # This is a tool execution output
         tool_name = record.get("toolAction") or record.get("toolSummary") or rec_type
         # Estimate size
@@ -122,7 +121,8 @@ def audit_antigravity_session(file_path: str, conversation_id: str) -> dict:
         turn_completion_text = ""
         
         for r in turn_recs:
-            if r.get("type") == "USER_INPUT":
+            rec_type = r.get("type") or ""
+            if rec_type == "USER_INPUT":
                 # Look for model selection changes
                 content = r.get("content", "")
                 if "Model Selection" in content:
@@ -130,7 +130,7 @@ def audit_antigravity_session(file_path: str, conversation_id: str) -> dict:
                     if match:
                         model = match.group(1).strip().lower().replace(" ", "-")
                         
-            elif r.get("source") == "MODEL":
+            elif rec_type == "PLANNER_RESPONSE":
                 turn_completion_text += r.get("content") or ""
                 if r.get("thinking"):
                     turn_completion_text += "\n" + r["thinking"]
@@ -149,7 +149,7 @@ def audit_antigravity_session(file_path: str, conversation_id: str) -> dict:
                     target = args.get("TargetFile") or args.get("TargetPath") or args.get("path")
                     if target:
                         modified_files.add(os.path.basename(target))
-            else:
+            elif rec_type not in ("CONVERSATION_HISTORY", "SYSTEM_MESSAGE"):
                 # Extract file reading and tool outputs
                 t_calls, f_read, t_out = parse_tool_calls_and_files(r)
                 turn_files_read.extend(f_read)
