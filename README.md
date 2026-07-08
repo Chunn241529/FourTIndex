@@ -101,6 +101,9 @@ graph TD
 - **📝 Heading-Aware Markdown Splitting:** Dedicated parser for customization `SKILL.md` folders that extracts YAML frontmatter and splits instructions by H2/H3 headers.
 - **🛡️ Self-Healing Relative Paths:** Automatically resolves relative file path requests by scanning all registered projects in the global registry database.
 - **🍃 VRAM/RAM GPU Cleaner & Token Counter:** Unloads heavy models from local GPU memory and prints a token usage & cost summary automatically when done.
+- **🔄 Real-time Background File Watcher:** Auto-indexes changed files in the background within 100ms of saving, keeping the Vector DB fully synced with the IDE.
+- **🩺 System Health Diagnostics (`doctor` CLI):** Automated diagnostic checks for local LLM & Embedding providers (Ollama/LM Studio), DB health, and latency testing.
+- **🛡️ Smart Context Window Guard:** Dynamic token budget counter that automatically prunes lower-rank context chunks to prevent VRAM overflow and local model crashes.
 
 ---
 
@@ -241,6 +244,33 @@ cd scratch/agent-token-meter
 python cli.py watch
 ```
 
+### 🩺 System Diagnostics & Health Check (`doctor` CLI)
+
+To verify the status of your local environment and debug connection issues with local LLM providers, run:
+
+```bash
+fourtindex doctor
+```
+
+This command runs automated checks on:
+1. **Active LLM Provider:** Verifies whether Ollama or LM Studio is the active backend.
+2. **Provider Health Status:** Pings the host endpoints to verify they are active.
+3. **Model Availability:** Checks if configured LLM and Embedding models are pulled or loaded in memory.
+4. **Local Databases:** Verifies read/write access to the SQLite registry database and ChromaDB.
+5. **Embedding Latency:** Runs a mock query embedding generation to measure and report local hardware response latency in milliseconds.
+
+### 🔄 Real-time Background File Watcher (`watch` CLI & Daemon)
+
+FourTIndex includes a lightweight, real-time background file watcher that automatically keeps your codebase index in sync. When you save a file in your editor (e.g., VS Code or Cursor), it is parsed and re-indexed incrementally in under 100ms.
+
+#### Running Standalone:
+```bash
+fourtindex watch [path_to_project]
+```
+
+#### Automatic MCP Daemon:
+The file watcher runs automatically as a background daemon when you start the stdio MCP server (`fourtindex mcp`). It monitors the current working directory, respects ignore rules (such as `.gitignore` and `.fourtindex` cache), and terminates cleanly when the MCP server shuts down.
+
 ---
 
 ## 📊 Performance & Cost Benchmark (Multi-Language)
@@ -276,6 +306,8 @@ python benchmarks/run_benchmark.py
 | `fourtindex setup-lmstudio`| _None_                         | Verifies LM Studio connection, loads models, sets active.|
 | `fourtindex clean-mem`     | _None_                         | Unloads models and prints token evaluation report.     |
 | `fourtindex mcp`           | _None_                         | Launches the stdio MCP server for client integrations. |
+| `fourtindex watch`         | `[path]`                       | Watches codebase directory and auto-indexes on changes. |
+| `fourtindex doctor`        | _None_                         | Runs system health diagnostics and tests local providers.|
 
 ---
 
@@ -314,29 +346,32 @@ Add the following to `%APPDATA%\Claude\claude_desktop_config.json` on Windows (o
 
 ## 📖 MCP Tool Specifications
 
-- **`search_codebase(query: str, project_name: str, limit: int, file_ext: str, language: str) -> str`**
+> [!TIP]
+> **Dynamic Project Detection**: The `project_name` parameter is optional (defaults to `None`) for all tools. If omitted, FourTIndex automatically detects the active project based on the client's current working directory compared against paths in the project registry.
+
+- **`search_codebase(query: str, project_name: str = None, limit: int = 5, file_ext: str = None, language: str = None) -> str`**
   - Semantically searches the codebase. Filters by extension and language dynamically.
-- **`get_file_outline(file_path: str, project_name: str) -> str`**
+- **`get_file_outline(file_path: str, project_name: str = None) -> str`**
   - Retrieves a file's class/method signatures outline with boundary line numbers.
-- **`get_symbol_definition(symbol_name: str, project_name: str) -> str`**
+- **`get_symbol_definition(symbol_name: str, project_name: str = None) -> str`**
   - Returns the full implementation body for **Functions**, and outlines for **Classes**.
-- **`read_code_lines(file_path: str, start_line: int, end_line: int, project_name: str) -> str`**
+- **`read_code_lines(file_path: str, start_line: int, end_line: int, project_name: str = None) -> str`**
   - Reads physical lines. Resolves relative paths automatically.
-- **`index_project(project_path: str, project_name: str, rebuild: bool, force: bool) -> str`**
+- **`index_project(project_path: str = ".", project_name: str = None, rebuild: bool = False, force: bool = False) -> str`**
   - Indexes or incrementally syncs a project's codebase, generating code embeddings and updating the registry directory tree structure.
-- **`get_project_roadmap(project_name: str) -> str`**
-  - **[New]** Retrieves the full JSON structural overview and detected frameworks.
+- **`get_project_roadmap(project_name: str = None) -> str`**
+  - Retrieves the full JSON structural overview and detected frameworks.
 - **`list_projects() -> str`**
-  - **[New]** Lists all registered projects with roadmaps, path directories, and framework configurations.
+  - Lists all registered projects with roadmaps, path directories, and framework configurations.
 - **`get_token_report() -> str`**
-  - **[New]** Retrieves the current session's token consumption and pricing report at any time.
+  - Retrieves the current session's token consumption and pricing report at any time.
 - **`clean_mem() -> str`**
   - Unloads models from VRAM/RAM immediately and returns token usage stats.
-- **`index_skill(skill_path: str, project_name: str) -> str`**
+- **`index_skill(skill_path: str, project_name: str = None) -> str`**
   - Indexes custom guidelines (`SKILL.md`) by heading.
-- **`search_skills(query: str, project_name: str, limit: int) -> str`**
+- **`search_skills(query: str, project_name: str = None, limit: int = 3) -> str`**
   - Searches customization guidelines semantically.
-- **`save_session_summary(session_id: str, summary_text: str, project_name: str) -> str`**
+- **`save_session_summary(session_id: str, summary_text: str, project_name: str = None) -> str`**
   - Saves design decisions/change history.
 
 ---

@@ -13,36 +13,34 @@ You should use the tools provided by FourTIndex to gather codebase context and p
 
 If you are running in an MCP-enabled environment, the following tools are registered under the name `FourTIndex`. Note the parameter types:
 
-1. `search_codebase(query: str, project_name: str = "FourTIndex", limit: int = 5, file_ext: str = None) -> str`
-   - Performs semantic vector search on code chunks. Filter by file extension (e.g. `".py"`, `"ts"`) to exclude noise.
-2. `get_file_outline(file_path: str, project_name: str = "FourTIndex") -> str`
-   - Retrieves class outlines, function names, and import structures without full implementation code. Use this to understand file structure first.
-3. `get_symbol_definition(symbol_name: str, project_name: str = "FourTIndex") -> str`
-   - Retrieves the exact class or function implementation.
-   - **Crucial Behavior**: If `symbol_name` is a **Function**, it returns the full body. If it is a **Class**, it returns the outline (method signatures only). To read specific methods, query `ClassName.method_name`.
-4. `read_code_lines(file_path: str, start_line: int, end_line: int, project_name: str = "FourTIndex") -> str`
-   - Reads exact physical lines (1-indexed, inclusive). It automatically resolves relative paths by looking up the absolute path of the project in the registry.
-5. `save_session_summary(session_id: str, summary_text: str, project_name: str = "FourTIndex") -> str`
-   - Stores design decisions or change logs into the session memories index for future query references.
-6. `index_project(project_path: str = ".", project_name: str = "FourTIndex") -> str`
-   - Forces a re-index of the codebase. It uses **16x Batch Embedding Optimization** for extremely fast index creation and only indexes modified files (Incremental Sync takes < 1 second).
-   - Unnecessary files and directories (like `.git`, `node_modules`, `.fourtindex`, `*.egg-info`, `.venv`) are automatically excluded.
-7. `index_skill(skill_path: str, project_name: str = "FourTIndex") -> str`
-   - Indexes a specific skill's `SKILL.md` file using heading-based splitting and YAML frontmatter parsing.
-8. `search_skills(query: str, project_name: str = "FourTIndex", limit: int = 3) -> str`
-   - Performs semantic vector search on indexed skill sections.
-9. `get_skill_outline(skill_name: str, project_name: str = "FourTIndex") -> str`
-   - Retrieves the list of headings (sections) available for a specific skill.
-10. `read_skill_section(skill_name: str, heading: str, project_name: str = "FourTIndex") -> str`
-    - Retrieves the exact markdown section content under a specific heading for a registered skill.
-11. `get_project_roadmap(project_name: str) -> str`
-    - Retrieves the full JSON structural overview (roadmap) and detected framework signatures (like Unity, Unreal, Godot, Cocos, Roblox) for a project.
+1. `search_codebase(query: str, project_name: str = None, limit: int = 5, file_ext: str = None) -> str`
+   - Performs semantic vector search on code chunks. `project_name` defaults to `None` and is dynamically resolved to the active project based on the caller's working directory.
+2. `get_file_outline(file_path: str, project_name: str = None) -> str`
+   - Retrieves class outlines, function names, and import structures. `project_name` is optional.
+3. `get_symbol_definition(symbol_name: str, project_name: str = None) -> str`
+   - Retrieves the exact class or function implementation. `project_name` is optional.
+4. `read_code_lines(file_path: str, start_line: int, end_line: int, project_name: str = None) -> str`
+   - Reads exact physical lines. `project_name` is optional.
+5. `save_session_summary(session_id: str, summary_text: str, project_name: str = None) -> str`
+   - Stores design decisions or change logs. `project_name` is optional.
+6. `index_project(project_path: str = ".", project_name: str = None) -> str`
+   - Forces a re-index of the codebase. `project_name` is optional.
+7. `index_skill(skill_path: str, project_name: str = None) -> str`
+   - Indexes a specific skill's `SKILL.md` file. `project_name` is optional.
+8. `search_skills(query: str, project_name: str = None, limit: int = 3) -> str`
+   - Performs semantic vector search on indexed skill sections. `project_name` is optional.
+9. `get_skill_outline(skill_name: str, project_name: str = None) -> str`
+   - Retrieves the list of headings (sections) available. `project_name` is optional.
+10. `read_skill_section(skill_name: str, heading: str, project_name: str = None) -> str`
+    - Retrieves the exact markdown section content. `project_name` is optional.
+11. `get_project_roadmap(project_name: str = None) -> str`
+    - Retrieves the full JSON structural overview (roadmap) and detected framework signatures. `project_name` is optional.
 12. `list_projects() -> str`
     - Lists all registered projects in the registry database.
 13. `get_token_report() -> str`
-    - Estimates and outputs the current session's input/output token usage and API pricing report.
+    - Estimates and outputs the current session's input/output token usage.
 14. `clean_mem() -> str`
-    - Unloads all configured models from local VRAM and system memory immediately. Use this to free up GPU and system resources between tasks.
+    - Unloads all configured models from VRAM/RAM.
 
 ## Codebase Metadata Schema
 

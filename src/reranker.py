@@ -96,7 +96,8 @@ class LocalReranker:
                 
                 output_text = res.get("choices", [{}])[0].get("message", {}).get("content", "0.0").strip()
                 file_info = chunk.get("metadata", {}).get("file_path") or chunk.get("metadata", {}).get("file", "unknown")
-                print(f"DEBUG - Model output for chunk '{file_info}': '{output_text}'")
+                import sys
+                sys.stderr.write(f"DEBUG - Model output for chunk '{file_info}': '{output_text}'\n")
                 
                 # Parse numeric score from output
                 match = re.search(r"[-+]?\d*\.\d+|\d+", output_text)

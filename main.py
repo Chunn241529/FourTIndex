@@ -359,9 +359,24 @@ def cmd_providers(args):
 
 def cmd_mcp(args):
     inject_agent_skill()
+    config = Config()
+    
+    watcher_observer = None
+    try:
+        from src.watcher import start_background_watcher
+        watcher_observer = start_background_watcher(".", config)
+    except Exception as e:
+        sys.stderr.write(f"[Watcher] Failed to start background file watcher: {e}\n")
+
     # Import inside function to avoid starting it during argparse setup
     from src.mcp_server import mcp
-    mcp.run()
+    try:
+        mcp.run()
+    finally:
+        if watcher_observer is not None:
+            sys.stderr.write("[Watcher] Stopping background file watcher...\n")
+            watcher_observer.stop()
+            watcher_observer.join()
 
 def cmd_dashboard(args):
     from src.dashboard_server import start_dashboard_server
@@ -369,6 +384,20 @@ def cmd_dashboard(args):
         start_dashboard_server(port=args.port, open_browser=not args.no_open)
     except KeyboardInterrupt:
         print("\nDashboard server stopped.")
+        sys.exit(0)
+
+def cmd_doctor(args):
+    config = Config()
+    from src.doctor import run_diagnostics
+    run_diagnostics(config)
+
+def cmd_watch(args):
+    config = Config()
+    from src.watcher import start_watcher
+    try:
+        start_watcher(args.path, config)
+    except KeyboardInterrupt:
+        print("\nWatcher stopped.")
         sys.exit(0)
 
 def main():
@@ -437,6 +466,15 @@ def main():
     p_dashboard.add_argument("--port", type=int, default=4040, help="Port to run the dashboard server on")
     p_dashboard.add_argument("--no-open", action="store_true", help="Do not automatically open the dashboard in the web browser")
     p_dashboard.set_defaults(func=cmd_dashboard)
+
+    # doctor command
+    p_doctor = subparsers.add_parser("doctor", help="Run system health diagnostic and check local providers")
+    p_doctor.set_defaults(func=cmd_doctor)
+
+    # watch command
+    p_watch = subparsers.add_parser("watch", help="Watch codebase directory and auto-index on changes")
+    p_watch.add_argument("path", nargs="?", default=".", help="Path to project directory to watch")
+    p_watch.set_defaults(func=cmd_watch)
     
     args = parser.parse_args()
     args.func(args)

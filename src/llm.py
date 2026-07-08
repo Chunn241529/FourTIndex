@@ -16,12 +16,50 @@ class LLMClient:
 
     def generate_answer(self, query: str, context: str) -> str:
         """Queries the configured LLM model (Ollama or LM Studio) with the retrieved code context."""
+        from src.token_meter import count_tokens
+        import sys
+
+        # Setup prompt base to measure non-context token size
+        prompt_template_base = (
+            f"You are a helpful coding assistant. Answer the user's question based on the provided code context.\n"
+            f"Always cite the file names and line numbers of the code you refer to.\n"
+            f"If the context doesn't contain enough information, explain what is missing.\n\n"
+            f"--- CODE CONTEXT ---\n"
+            f"\n\n"
+            f"--- USER QUERY ---\n"
+            f"{query}\n"
+        )
+        base_tokens = count_tokens(prompt_template_base, self.model)
+        budget = self.config.data.get("budget", {}).get("context_budget_tokens", 35000)
+
+        chunks = context.split("\n\n")
+        accepted_chunks = []
+        current_tokens = base_tokens
+        pruned_count = 0
+
+        for chunk in chunks:
+            if not chunk.strip():
+                continue
+            chunk_tokens = count_tokens(chunk + "\n\n", self.model)
+            if current_tokens + chunk_tokens > budget:
+                pruned_count += 1
+                continue
+            accepted_chunks.append(chunk)
+            current_tokens += chunk_tokens
+
+        if pruned_count > 0:
+            sys.stderr.write(
+                f"\n[Warning] Context Guard: Pruned {pruned_count} code chunk(s) to fit within context budget of {budget} tokens "
+                f"(Active prompt size: {current_tokens} tokens).\n"
+            )
+
+        final_context = "\n\n".join(accepted_chunks)
         prompt = (
             f"You are a helpful coding assistant. Answer the user's question based on the provided code context.\n"
             f"Always cite the file names and line numbers of the code you refer to.\n"
             f"If the context doesn't contain enough information, explain what is missing.\n\n"
             f"--- CODE CONTEXT ---\n"
-            f"{context}\n\n"
+            f"{final_context}\n\n"
             f"--- USER QUERY ---\n"
             f"{query}\n"
         )

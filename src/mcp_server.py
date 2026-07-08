@@ -38,6 +38,55 @@ except Exception as e:
 
 _budget_warning_trigger_count = 0
 _last_auto_index_time = {}
+def detect_active_project(cwd: str = None) -> str:
+    """Finds the registered project name whose path matches or is an ancestor of the given cwd (defaults to os.getcwd())."""
+    if cwd is None:
+        cwd = os.getcwd()
+    cwd = os.path.abspath(cwd).replace("\\", "/")
+    
+    registry_path = os.path.expanduser("~/.fourtindex/project_registry.json")
+    if os.path.exists(registry_path):
+        try:
+            with open(registry_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                matching_projects = []
+                for proj_name, proj_path in data.items():
+                    proj_path = os.path.abspath(proj_path).replace("\\", "/")
+                    if cwd == proj_path or cwd.startswith(proj_path + "/"):
+                        matching_projects.append((proj_name, proj_path))
+                if matching_projects:
+                    matching_projects.sort(key=lambda x: len(x[1]), reverse=True)
+                    return matching_projects[0][0]
+        except Exception as e:
+            logger.error(f"Error reading project registry in detect_active_project: {e}")
+            
+    return config.project_name
+
+_has_queried_skills = False
+
+def _append_skill_reminder(content: str, project_name: str) -> str:
+    global _has_queried_skills
+    if _has_queried_skills:
+        return content
+    try:
+        results = db.skills.get(where={"project_name": project_name}, limit=1)
+        if not results or not results.get("documents"):
+            return content
+        reminder = (
+            f"\n\n"
+            f"> [!TIP]\n"
+            f"> **FourTIndex Skill Reminder**\n"
+            f"> 💡 Custom guidelines/rules (skills) are available for project '{project_name}'.\n"
+            f"> Before implementing changes, run `search_skills` or `get_skill_outline` to inspect them and ensure correct implementation.\n"
+        )
+        return content + reminder
+    except Exception:
+        return content
+
+def _post_process_tool_output(content: str, project_name: str) -> str:
+    content = _append_skill_reminder(content, project_name)
+    content = _append_budget_warning(content)
+    return content
 
 def _append_budget_warning(content: str) -> str:
     try:
@@ -155,7 +204,7 @@ def _auto_reindex_if_needed(project_name: str) -> None:
         logger.error(f"Error in _auto_reindex_if_needed: {e}")
 
 @mcp.tool()
-def search_codebase(query: str, project_name: str = "FourTIndex", limit: int = 5, file_ext: str = None, language: str = None) -> str:
+def search_codebase(query: str, project_name: str = None, limit: int = 5, file_ext: str = None, language: str = None) -> str:
     """Searches the indexed codebase semantically for relevant code chunks.
     
     Args:
@@ -165,6 +214,8 @@ def search_codebase(query: str, project_name: str = "FourTIndex", limit: int = 5
         file_ext: Optional file extension to filter by (e.g., '.py' or 'js').
         language: Optional language to filter by (e.g., 'python' or 'typescript').
     """
+    if project_name is None:
+        project_name = detect_active_project()
     logger.info(f"search_codebase called with query: '{query}', file_ext: '{file_ext}', language: '{language}'")
     try:
         _auto_reindex_if_needed(project_name)
@@ -238,19 +289,21 @@ def search_codebase(query: str, project_name: str = "FourTIndex", limit: int = 5
                 f"=== FILE: {meta.get('file_path')} | Lines: {meta.get('start_line')}-{meta.get('end_line')} | {score_type}: {score_val:.4f} ===\n"
                 f"{r['content']}\n"
             )
-        return _append_budget_warning("\n".join(formatted))
+        return _post_process_tool_output("\n".join(formatted), project_name)
     except Exception as e:
         logger.error(f"Error in search_codebase: {e}")
         return f"Error during search: {str(e)}"
 
 @mcp.tool()
-def get_file_outline(file_path: str, project_name: str = "FourTIndex") -> str:
+def get_file_outline(file_path: str, project_name: str = None) -> str:
     """Retrieves the high-level class and function outline structure of a specific file.
     
     Args:
         file_path: Relative path of the file (e.g., 'src/config.py').
         project_name: The name of the project.
     """
+    if project_name is None:
+        project_name = detect_active_project()
     logger.info(f"get_file_outline called for: '{file_path}'")
     try:
         _auto_reindex_if_needed(project_name)
@@ -258,19 +311,21 @@ def get_file_outline(file_path: str, project_name: str = "FourTIndex") -> str:
         outline = project_db.get_project_outline(
             project["project_id"], store["store_id"], file_path
         )
-        return _append_budget_warning(outline or f"No outline found for file: {file_path}")
+        return _post_process_tool_output(outline or f"No outline found for file: {file_path}", project_name)
     except Exception as e:
         logger.error(f"Error in get_file_outline: {e}")
         return f"Error: {str(e)}"
 
 @mcp.tool()
-def get_symbol_definition(symbol_name: str, project_name: str = "FourTIndex") -> str:
+def get_symbol_definition(symbol_name: str, project_name: str = None) -> str:
     """Finds the detailed code definition of a class or function by its name (e.g., 'Config.project_name').
     
     Args:
         symbol_name: Name of class or function.
         project_name: The name of the project.
     """
+    if project_name is None:
+        project_name = detect_active_project()
     logger.info(f"get_symbol_definition called for: '{symbol_name}'")
     try:
         _auto_reindex_if_needed(project_name)
@@ -278,13 +333,13 @@ def get_symbol_definition(symbol_name: str, project_name: str = "FourTIndex") ->
         definition = project_db.get_project_symbol(
             project["project_id"], store["store_id"], symbol_name
         )
-        return _append_budget_warning(definition or f"Symbol '{symbol_name}' definition not found.")
+        return _post_process_tool_output(definition or f"Symbol '{symbol_name}' definition not found.", project_name)
     except Exception as e:
         logger.error(f"Error in get_symbol_definition: {e}")
         return f"Error: {str(e)}"
 
 @mcp.tool()
-def read_code_lines(file_path: str, start_line: int, end_line: int, project_name: str = "FourTIndex") -> str:
+def read_code_lines(file_path: str, start_line: int, end_line: int, project_name: str = None) -> str:
     """Reads a specific range of lines from a file in the workspace.
     
     Args:
@@ -293,6 +348,8 @@ def read_code_lines(file_path: str, start_line: int, end_line: int, project_name
         end_line: 1-indexed ending line number (inclusive).
         project_name: The name of the project.
     """
+    if project_name is None:
+        project_name = detect_active_project()
     logger.info(f"read_code_lines called for: '{file_path}' ({start_line}-{end_line}) in project '{project_name}'")
     
     # Resolve file path:
@@ -347,13 +404,13 @@ def read_code_lines(file_path: str, start_line: int, end_line: int, project_name
         for idx, line in enumerate(selected_lines, start=start_line):
             formatted.append(f"{idx:4d} | {line}")
             
-        return _append_budget_warning("\n".join(formatted))
+        return _post_process_tool_output("\n".join(formatted), project_name)
     except Exception as e:
         logger.error(f"Error in read_code_lines: {e}")
         return f"Error: {str(e)}"
 
 @mcp.tool()
-def save_session_summary(session_id: str, summary_text: str, project_name: str = "FourTIndex") -> str:
+def save_session_summary(session_id: str, summary_text: str, project_name: str = None) -> str:
     """Saves a summary of the current session's design decisions and changes into memory.
     
     Args:
@@ -361,6 +418,8 @@ def save_session_summary(session_id: str, summary_text: str, project_name: str =
         summary_text: Summary text explaining design choices, code refactorings, or modifications made.
         project_name: The name of the project.
     """
+    if project_name is None:
+        project_name = detect_active_project()
     logger.info(f"save_session_summary called for session '{session_id}'")
     try:
         emb = embedder.get_embedding(summary_text)
@@ -383,7 +442,7 @@ def save_session_summary(session_id: str, summary_text: str, project_name: str =
 @mcp.tool()
 def index_project(
     project_path: str = ".",
-    project_name: str = "FourTIndex",
+    project_name: str = None,
     embedding_provider: str = "auto",
     rebuild: bool = False,
     force: bool = False,
@@ -397,6 +456,25 @@ def index_project(
         project_name: The name of the project.
         embedding_provider: Backward-compatible selector; auto and ollama are accepted.
     """
+    if project_name is None:
+        detect_path = os.path.abspath(project_path)
+        project_name = detect_active_project(detect_path)
+        registered_path = db.get_project_path(project_name)
+        if not registered_path or os.path.abspath(registered_path) != detect_path:
+            target_config_path = os.path.join(detect_path, "config.yaml")
+            resolved_name = None
+            if os.path.exists(target_config_path):
+                try:
+                    import yaml
+                    with open(target_config_path, "r", encoding="utf-8") as f:
+                        ydata = yaml.safe_load(f) or {}
+                        resolved_name = ydata.get("project", {}).get("name")
+                except Exception:
+                    pass
+            if resolved_name:
+                project_name = resolved_name
+            else:
+                project_name = os.path.basename(detect_path) or config.project_name
     logger.info(f"index_project called for path: '{project_path}'")
     try:
         service = IndexingService(config)
@@ -417,13 +495,15 @@ def index_project(
         return f"Error indexing project: {str(e)}"
 
 @mcp.tool()
-def index_skill(skill_path: str, project_name: str = "FourTIndex") -> str:
+def index_skill(skill_path: str, project_name: str = None) -> str:
     """Scans and indexes a specific customization skill (SKILL.md).
     
     Args:
         skill_path: Path to the skill folder or SKILL.md file.
         project_name: The name of the project.
     """
+    if project_name is None:
+        project_name = detect_active_project()
     logger.info(f"index_skill called for: '{skill_path}'")
     try:
         # Resolve skill path:
@@ -506,7 +586,7 @@ def index_skill(skill_path: str, project_name: str = "FourTIndex") -> str:
         return f"Error: {str(e)}"
 
 @mcp.tool()
-def search_skills(query: str, project_name: str = "FourTIndex", limit: int = 3) -> str:
+def search_skills(query: str, project_name: str = None, limit: int = 3) -> str:
     """Searches the indexed customization skills semantically.
     
     Args:
@@ -514,8 +594,12 @@ def search_skills(query: str, project_name: str = "FourTIndex", limit: int = 3) 
         project_name: The name of the project.
         limit: Max number of sections to return.
     """
+    if project_name is None:
+        project_name = detect_active_project()
     logger.info(f"search_skills called with query: '{query}'")
     try:
+        global _has_queried_skills
+        _has_queried_skills = True
         total_skills = db.skills.count()
         if total_skills == 0:
             return "No skills found in the database. Please run 'index_skill' first to register skills."
@@ -539,15 +623,19 @@ def search_skills(query: str, project_name: str = "FourTIndex", limit: int = 3) 
         return f"Error: {str(e)}"
 
 @mcp.tool()
-def get_skill_outline(skill_name: str, project_name: str = "FourTIndex") -> str:
+def get_skill_outline(skill_name: str, project_name: str = None) -> str:
     """Gets the table of contents (list of headings) for a specific indexed skill.
     
     Args:
         skill_name: The name of the registered skill.
         project_name: The name of the project.
     """
+    if project_name is None:
+        project_name = detect_active_project()
     logger.info(f"get_skill_outline called for skill: '{skill_name}'")
     try:
+        global _has_queried_skills
+        _has_queried_skills = True
         results = db.skills.get(
             where={
                 "$and": [
@@ -572,7 +660,7 @@ def get_skill_outline(skill_name: str, project_name: str = "FourTIndex") -> str:
         return f"Error: {str(e)}"
 
 @mcp.tool()
-def read_skill_section(skill_name: str, heading: str, project_name: str = "FourTIndex") -> str:
+def read_skill_section(skill_name: str, heading: str, project_name: str = None) -> str:
     """Reads a specific markdown section under a heading for a registered skill.
     
     Args:
@@ -580,8 +668,12 @@ def read_skill_section(skill_name: str, heading: str, project_name: str = "FourT
         heading: The exact heading name to retrieve (e.g., 'Agent Guidelines').
         project_name: The name of the project.
     """
+    if project_name is None:
+        project_name = detect_active_project()
     logger.info(f"read_skill_section called for skill '{skill_name}', heading '{heading}'")
     try:
+        global _has_queried_skills
+        _has_queried_skills = True
         results = db.skills.get(
             where={
                 "$and": [
@@ -686,7 +778,7 @@ def truncate_tree(node: dict, max_depth: int, current_depth: int = 0) -> dict:
     return new_node
 
 @mcp.tool()
-def get_project_roadmap(project_name: str, depth: int = 3) -> str:
+def get_project_roadmap(project_name: str = None, depth: int = 3) -> str:
     """Retrieves the JSON structural overview (roadmap) for a given project.
     
     This includes the directory tree (truncated to the specified depth) and detected framework signatures.
@@ -695,6 +787,8 @@ def get_project_roadmap(project_name: str, depth: int = 3) -> str:
         project_name: The name of the project.
         depth: The maximum directory tree depth to display (default: 3) to keep token size compact.
     """
+    if project_name is None:
+        project_name = detect_active_project()
     logger.info(f"get_project_roadmap called for: '{project_name}', depth: {depth}")
     try:
         roadmap = db.get_project_roadmap(project_name)
@@ -725,6 +819,259 @@ def list_projects() -> str:
     except Exception as e:
         logger.error(f"Error in list_projects: {e}")
         return f"Error: {str(e)}"
+
+
+@mcp.prompt()
+def follow_project_rules(project_name: str = None) -> str:
+    """Provides a system prompt template containing the project's custom rules and instructions (skills)."""
+    if project_name is None:
+        project_name = detect_active_project()
+    global _has_queried_skills
+    _has_queried_skills = True
+    try:
+        results = db.skills.get(where={"project_name": project_name})
+        if not results or not results.get("documents"):
+            return f"You are assisting with the project '{project_name}'. Please follow standard coding practices."
+            
+        skills_dict = {}
+        for doc, meta in zip(results["documents"], results["metadatas"]):
+            s_name = meta.get("skill_name", "General")
+            heading = meta.get("heading", "")
+            if s_name not in skills_dict:
+                skills_dict[s_name] = []
+            skills_dict[s_name].append(f"### {heading}\n{doc}")
+            
+        formatted_skills = []
+        for s_name, chunks in skills_dict.items():
+            formatted_skills.append(f"## Skill/Rule: {s_name}\n" + "\n\n".join(chunks))
+            
+        rules_text = "\n\n".join(formatted_skills)
+        return (
+            f"You are working on the project '{project_name}'. The project has specific instructions, rules, "
+            f"and coding standards (skills) registered in the database. "
+            f"You MUST follow these rules strictly:\n\n"
+            f"{rules_text}\n\n"
+            f"Please confirm that you have read and understood these rules in your next response."
+        )
+    except Exception as e:
+        return f"Error loading project rules: {str(e)}"
+
+
+@mcp.resource("skills://list")
+def list_skills() -> str:
+    """Lists all registered project skills/instructions in the database."""
+    global _has_queried_skills
+    _has_queried_skills = True
+    try:
+        results = db.skills.get()
+        if not results or not results.get("metadatas"):
+            return "No skills currently registered."
+        
+        skills_set = set()
+        for meta in results["metadatas"]:
+            skills_set.add((meta.get("project_name"), meta.get("skill_name")))
+            
+        lines = ["Registered Custom Skills:"]
+        for proj, skill in sorted(skills_set):
+            lines.append(f"- Project: {proj} | Skill: {skill} (URI: skills://{proj}/{skill})")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error listing skills: {str(e)}"
+
+
+@mcp.resource("skills://{project_name}/{skill_name}")
+def get_skill(project_name: str, skill_name: str) -> str:
+    """Retrieves the full content of a specific registered skill/instruction."""
+    global _has_queried_skills
+    _has_queried_skills = True
+    try:
+        results = db.skills.get(
+            where={
+                "$and": [
+                    {"project_name": project_name},
+                    {"skill_name": skill_name}
+                ]
+            }
+        )
+        if not results or not results.get("documents"):
+            return f"Skill '{skill_name}' for project '{project_name}' not found."
+            
+        sorted_chunks = sorted(
+            zip(results["documents"], results["metadatas"]),
+            key=lambda x: x[1].get("start_line", 0)
+        )
+        
+        lines = [f"# Skill: {skill_name} (Project: {project_name})"]
+        for doc, meta in sorted_chunks:
+            lines.append(f"\n## {meta.get('heading')}\n{doc}")
+            
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error retrieving skill: {str(e)}"
+
+
+@mcp.tool()
+def check_syntax(file_path: str, project_name: str = "FourTIndex") -> str:
+    """Checks a specific file or all supported source files in a directory recursively for syntax errors across multiple languages.
+    
+    This parses files using tree-sitter to find any syntax/token errors (ERROR or MISSING nodes) and reports them.
+    
+    Args:
+        file_path: Relative or absolute path of the file or directory to check (e.g. 'src/config.py').
+        project_name: The name of the project.
+    """
+    logger.info(f"check_syntax called for path: '{file_path}' in project '{project_name}'")
+    
+    # 1. Resolve path
+    abs_path = None
+    if os.path.isabs(file_path):
+        abs_path = os.path.abspath(file_path)
+    else:
+        proj_path = db.get_project_path(project_name)
+        if proj_path:
+            test_path = os.path.abspath(os.path.join(proj_path, file_path))
+            if os.path.exists(test_path):
+                abs_path = test_path
+        
+        if not abs_path:
+            registry_path = os.path.join(os.path.dirname(db.config.db_persist_directory), "project_registry.json")
+            if os.path.exists(registry_path):
+                try:
+                    with open(registry_path, "r", encoding="utf-8") as f:
+                        registry = json.load(f)
+                    for p_name, p_path in registry.items():
+                        test_path = os.path.abspath(os.path.join(p_path, file_path))
+                        if os.path.exists(test_path):
+                            abs_path = test_path
+                            break
+                except Exception:
+                    pass
+        if not abs_path:
+            abs_path = os.path.abspath(file_path)
+
+    if not os.path.exists(abs_path):
+        return f"Error: Path not found: {file_path} (Attempted resolution path: {abs_path})"
+
+    from src.indexer import EXTENSION_TO_LANGUAGE
+    
+    # Helper to check a single file
+    def check_single_file(path: str) -> list[dict]:
+        ext = os.path.splitext(path)[1].lower()
+        lang_name = EXTENSION_TO_LANGUAGE.get(ext)
+        if not lang_name:
+            return []  # Ignore unsupported file types silently when checking directory
+            
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+        except Exception as e:
+            return [{"type": "File Read Error", "line": 0, "col": 0, "line_text": str(e), "pointer": ""}]
+            
+        try:
+            from tree_sitter_languages import get_parser
+            parser = get_parser(lang_name)
+            if not parser:
+                return [{"type": "Parser Load Error", "line": 0, "col": 0, "line_text": f"Failed to load tree-sitter parser for {lang_name}", "pointer": ""}]
+                
+            tree = parser.parse(bytes(content, "utf-8"))
+            lines = content.splitlines()
+            
+            def _traverse_for_errors(node) -> list[dict]:
+                errors = []
+                is_err = node.type == "ERROR"
+                is_miss = getattr(node, "is_missing", False)
+                
+                if is_err or is_miss:
+                    start_line, start_col = node.start_point
+                    
+                    line_text = ""
+                    if start_line < len(lines):
+                        line_text = lines[start_line]
+                        
+                    pointer = ""
+                    if line_text:
+                        col_aligned = min(start_col, len(line_text))
+                        pointer = " " * col_aligned + "^"
+                        
+                    error_type = "Syntax Error" if is_err else f"Missing Token ({node.type})"
+                    errors.append({
+                        "type": error_type,
+                        "line": start_line + 1,
+                        "col": start_col,
+                        "line_text": line_text,
+                        "pointer": pointer
+                    })
+                    if is_err:
+                        return errors
+                        
+                for child in node.children:
+                    errors.extend(_traverse_for_errors(child))
+                return errors
+                
+            return _traverse_for_errors(tree.root_node)
+        except Exception as e:
+            return [{"type": "Parser Execution Error", "line": 0, "col": 0, "line_text": str(e), "pointer": ""}]
+
+    # 2. Execute check
+    results_report = []
+    
+    if os.path.isfile(abs_path):
+        ext = os.path.splitext(abs_path)[1].lower()
+        if ext not in EXTENSION_TO_LANGUAGE:
+            return f"Unsupported file type for syntax check: {ext}. Supported extensions: {', '.join(EXTENSION_TO_LANGUAGE.keys())}"
+            
+        errors = check_single_file(abs_path)
+        if not errors:
+            return f"✓ No syntax errors found in {file_path}."
+            
+        results_report.append(f"Found {len(errors)} syntax error(s) in {file_path}:")
+        for err in errors:
+            results_report.append(f"\n[{err['type']}] Line {err['line']}, Column {err['col']}:")
+            if err['line_text']:
+                results_report.append(f"  {err['line_text']}")
+                results_report.append(f"  {err['pointer']}")
+            else:
+                results_report.append(f"  Details: {err['line_text']}")
+                
+        return "\n".join(results_report)
+        
+    elif os.path.isdir(abs_path):
+        try:
+            from src.indexer import Indexer
+            indexer_inst = Indexer(config)
+            files_to_check = indexer_inst.scan_files(abs_path)
+        except Exception as e:
+            return f"Error scanning directory {file_path}: {str(e)}"
+            
+        files_to_check = files_to_check[:100]
+        
+        all_errors = {}
+        checked_count = 0
+        for f in files_to_check:
+            ext = os.path.splitext(f)[1].lower()
+            if ext not in EXTENSION_TO_LANGUAGE:
+                continue
+            checked_count += 1
+            file_errs = check_single_file(f)
+            if file_errs:
+                rel_p = os.path.relpath(f, abs_path).replace("\\", "/")
+                all_errors[rel_p] = file_errs
+                
+        if not all_errors:
+            return f"✓ No syntax errors found across {checked_count} supported files in {file_path}."
+            
+        results_report.append(f"Checked {checked_count} file(s). Found syntax errors in {len(all_errors)} file(s):")
+        for rel_file, errors in all_errors.items():
+            results_report.append(f"\n=== File: {rel_file} ({len(errors)} error(s)) ===")
+            for err in errors:
+                results_report.append(f"[{err['type']}] Line {err['line']}, Column {err['col']}:")
+                if err['line_text']:
+                    results_report.append(f"  {err['line_text']}")
+                    results_report.append(f"  {err['pointer']}")
+                else:
+                    results_report.append(f"  Details: {err['line_text']}")
+                    
+        return "\n".join(results_report)
 
 
 if __name__ == "__main__":
