@@ -101,12 +101,14 @@ def _append_budget_warning(content: str) -> str:
         snapshot = candidate.parser(candidate.path, candidate.conversation_id)
         total_prompt = snapshot.total_prompt
         total_completion = snapshot.total_completion
+        context_tokens = snapshot.guard_context_tokens
+        displayed_context_tokens = snapshot.displayed_context_tokens
         model = snapshot.model
         
         input_rate, output_rate = get_pricing(model)
         total_cost = (total_prompt * input_rate + total_completion * output_rate) / 1_000_000.0
         
-        if total_prompt > max_tokens or total_cost > max_cost:
+        if context_tokens > max_tokens or total_cost > max_cost:
             global _budget_warning_trigger_count
             _budget_warning_trigger_count += 1
             
@@ -121,7 +123,7 @@ def _append_budget_warning(content: str) -> str:
                 f"\n\n"
                 f"> [!WARNING]\n"
                 f"> **FourTIndex Context Guard**\n"
-                f"> ⚠️ Active context has grown large: **{total_prompt + total_completion:,} tokens** (~${total_cost:.4f} USD).\n"
+                f"> ⚠️ Active context: **{displayed_context_tokens:,} tokens**; session cost: **~${total_cost:.4f} USD**.\n"
                 f"> To keep responses fast and cheap, please recommend the user to start a new chat session.\n"
                 f"> Run CLI `fourtindex dashboard` to copy the Context Bridge summary and transition instantly.\n"
             )

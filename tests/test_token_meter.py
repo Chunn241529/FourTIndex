@@ -32,11 +32,14 @@ def test_parse_codex_uses_exact_usage_and_model(tmp_path):
                         "total_token_usage": {
                             "input_tokens": 120,
                             "output_tokens": 30,
+                            "total_tokens": 150,
                         },
                         "last_token_usage": {
                             "input_tokens": 20,
                             "output_tokens": 5,
+                            "total_tokens": 44,
                         },
+                        "model_context_window": 200000,
                     },
                 },
             },
@@ -50,6 +53,10 @@ def test_parse_codex_uses_exact_usage_and_model(tmp_path):
     assert usage.conversation_id == "codex-session"
     assert (usage.total_prompt, usage.total_completion) == (120, 30)
     assert (usage.turn_prompt, usage.turn_completion) == (20, 5)
+    assert usage.active_context_tokens == 44
+    assert usage.guard_context_tokens == 44
+    assert usage.displayed_context_tokens == 44
+    assert usage.model_context_window == 200000
     assert usage.total_tool_calls == 1
 
 

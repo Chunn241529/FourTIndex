@@ -5,7 +5,7 @@ import re
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional
 
 
 DB_DIR = os.path.expanduser("~/.agent_token_meter")
@@ -36,6 +36,20 @@ class UsageSnapshot:
     turn_prompt: int
     turn_completion: int
     turn_tool_calls: int
+    active_context_tokens: Optional[int] = None
+    model_context_window: Optional[int] = None
+
+    @property
+    def guard_context_tokens(self) -> int:
+        if self.active_context_tokens is not None:
+            return self.active_context_tokens
+        return self.total_prompt
+
+    @property
+    def displayed_context_tokens(self) -> int:
+        if self.active_context_tokens is not None:
+            return self.active_context_tokens
+        return self.total_prompt + self.total_completion
 
 
 @dataclass(frozen=True)
@@ -295,6 +309,13 @@ def _usage_value(usage: dict, key: str) -> int:
     return int(usage.get(key) or 0)
 
 
+def _optional_usage_value(usage: dict, key: str) -> Optional[int]:
+    value = usage.get(key)
+    if value is None:
+        return None
+    return int(value)
+
+
 def parse_codex_transcript(
     file_path: str, conversation_id: str
 ) -> UsageSnapshot:
@@ -336,6 +357,8 @@ def parse_codex_transcript(
         turn_prompt=_usage_value(turn_usage, "input_tokens"),
         turn_completion=_usage_value(turn_usage, "output_tokens"),
         turn_tool_calls=turn_tools,
+        active_context_tokens=_optional_usage_value(turn_usage, "total_tokens"),
+        model_context_window=_optional_usage_value(latest_info, "model_context_window"),
     )
 
 
