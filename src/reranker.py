@@ -75,23 +75,26 @@ class LocalReranker:
         """Queries LM Studio chat completions to rank the chunks using the active model."""
         scored_chunks = []
         
+        system_prompt = (
+            "You are an expert code search ranking assistant.\n"
+            "Your task is to evaluate the relevance of a document to a query and output a single float number between 0.0 and 1.0.\n"
+            "Output ONLY the numeric float (e.g., 0.85). Do not include any thoughts, conversational filler, or explanation."
+        )
+        
         for chunk in chunks:
             content = chunk.get("content", "")
-            # Prompt the model to return a graded relevance score
-            prompt = (
-                f"Evaluate the relevance of the following Document to the Query.\n"
-                f"Query: {query}\n"
-                f"Document: {content}\n\n"
-                f"Provide a relevance score from 0.0 (completely irrelevant) to 1.0 (highly relevant). "
-                f"Respond with ONLY the numeric score (e.g. 0.85) and nothing else."
-            )
             
             try:
                 res = self.lm_client.chat_completions(
                     model=self.model_name,
-                    messages=[{"role": "user", "content": prompt}],
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": "Query: split array into batches\nDocument: def _pack_batches(items, max_items): ..."},
+                        {"role": "assistant", "content": "1.0"},
+                        {"role": "user", "content": f"Query: {query}\nDocument: {content}"}
+                    ],
                     temperature=0.0,
-                    max_tokens=30
+                    max_tokens=10
                 )
                 
                 output_text = res.get("choices", [{}])[0].get("message", {}).get("content", "0.0").strip()

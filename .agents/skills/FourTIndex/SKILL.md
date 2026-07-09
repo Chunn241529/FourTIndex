@@ -14,7 +14,9 @@ You should use the tools provided by FourTIndex to gather codebase context and p
 If you are running in an MCP-enabled environment, the following tools are registered under the name `FourTIndex`. All tools now accept an optional `output_json: bool = False` parameter to return structured JSON data instead of formatted text. Note the signatures:
 
 1. `search_codebase(query: str, project_name: str = None, limit: int = 5, file_ext: str = None, output_json: bool = False) -> str`
-   - Performs semantic vector search on code chunks. `project_name` defaults to `None` and is dynamically resolved to the active project based on the caller's working directory.
+   - Performs **True Hybrid Search** (SQLite FTS5 BM25 + ChromaDB Vector Search) merged via **Reciprocal Rank Fusion (RRF)**.
+   - Automatically handles low local reranker scores (e.g. 0.0) using **Adaptive Threshold Fallback**.
+   - Employs **Blended Hybrid Score** (combining 20% RRF and 80% Rerank weights) to prevent fragile local models from demoting exact keyword matches.
 2. `get_file_outline(file_path: str, project_name: str = None, output_json: bool = False) -> str`
    - Retrieves class outlines, function names, and import structures. `project_name` is optional.
 3. `get_symbol_definition(symbol_name: str, project_name: str = None, output_json: bool = False) -> str`
@@ -102,6 +104,7 @@ When answering questions or modifying code in this workspace, you MUST follow th
 > 2. **Context Bloat Warning**: If the active prompt size exceeds **35,000 tokens**, you MUST immediately advise the user to start a new chat session and transition using the Context Bridge.
 > 3. **File Size Reading Bound**: You are strictly prohibited from calling `read_code_lines` or `view_file` on ranges larger than **100 lines** without first calling `get_file_outline` and specifying a narrow, targeted line range.
 > 4. **No Duplicate Reads**: Do not call `read_code_lines` on the same file multiple times in a row.
+> 5. **Sequential Search Execution**: Running parallel search queries (e.g. concurrent subagents calling `search_codebase` simultaneously) on local LLM servers like LM Studio causes major queue queuing delays. Always run search queries sequentially to maintain fast response times.
 
 ### 1. Context Gathering Stage
 - **Never** read the entire codebase or list all directory trees recursively.

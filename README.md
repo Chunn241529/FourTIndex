@@ -90,6 +90,8 @@ graph TD
 
 ## ✨ Key Features
 
+- **🔍 True Hybrid Search (SQLite FTS5 + Vector + RRF):** Automatically queries FTS5 (BM25) and ChromaDB (Vector) in parallel, merging and re-scoring results using **Reciprocal Rank Fusion (RRF)** for extreme keyword and semantic precision.
+- **🛡️ Adaptive Threshold & Blended Scoring:** Combines FTS5 and Rerank scores to guarantee keyword-matched files are never lost due to fragile local Reranker scores (e.g. 0.0), automatically falling back if all candidates are zero-scored.
 - **📦 Localized Databases:** Vector databases are now isolated locally within each project (`.fourtindex/db`) for perfect separation, while project metadata remains mapped in a global registry.
 - **✨ Zero-Config AI Skill Auto-Injection:** Automatically injects the FourTIndex `SKILL.md` guidelines into `.agents/skills/FourTIndex/` whenever you start the MCP server, instantly teaching your AI agents how to use the local context tools.
 - **⚡ Project-wide Batch Embeddings:** Packs chunks from multiple files into provider-aware batches.
@@ -295,10 +297,10 @@ Captured on this checkout on **2026-07-09** using `benchmarks/benchmark_real_con
 
 | Metric / Scenario | ❌ Full repository context | ✔ Targeted context sample | 🚀 Efficiency Gain / Savings |
 | :--- | :--- | :--- | :--- |
-| **Files / Lines Scanned** | 61 files / 10,703 lines | Top 8 matched files | Focused task context |
-| **Prompt Context** | **107,834 tokens** | **7,623 tokens** | **14.1x smaller context** |
-| **Est. API Cost per Turn** | **$0.3235 USD** | **$0.0229 USD** | **92.9% cost reduction** |
-| **Scan Time** | 2,052.57 ms | 2,052.57 ms | Includes repository scan and ranking |
+| **Files / Lines Scanned** | 62 files / 11,079 lines | Top 8 matched files | Focused task context |
+| **Prompt Context** | **112,162 tokens** | **7,615 tokens** | **14.7x smaller context** |
+| **Est. API Cost per Turn** | **$0.3365 USD** | **$0.0228 USD** | **93.2% cost reduction** |
+| **Scan Time** | 2,262.00 ms | 2,262.00 ms | Includes repository scan and ranking |
 
 Results are written to:
 
@@ -308,6 +310,22 @@ python benchmarks/benchmark_real_context.py
 
 - JSON: `benchmarks/real_context_results.json`
 - Markdown: `benchmarks/real_context_results.md`
+
+### ⚔️ Agent Benchmark: Grep Search vs. FourTIndex
+
+To evaluate realistic agent work patterns, we compare a standard Grep search (where the agent finds keywords and reads whole matched files) against FourTIndex Hybrid Search (which retrieves only the Top 5 most relevant code chunks).
+
+| Metric | Grep Search + Read | FourTIndex Hybrid Search | Improvement / Win |
+| :--- | :--- | :--- | :--- |
+| **Search Latency** | **136.78 ms** | 3560.93 ms (3.5s) | Grep is 26.0x faster (due to local LLM Reranking) |
+| **Context Size** | 92,702 tokens | **1,599 tokens** | **FourTIndex: 58.0x smaller context** |
+| **Estimated Cost** | $0.27811 USD | **$0.00480 USD** | **FourTIndex: 98.3% cheaper per request** |
+| **Result Quality** | Unfiltered whole files (highly noisy) | Top 5 ranked code chunks | **FourTIndex: Targeted code snippets** |
+
+#### Run the Agent Benchmark:
+```bash
+python benchmarks/benchmark_grep_vs_fourt.py
+```
 
 #### Real Embedding Provider Benchmark
 

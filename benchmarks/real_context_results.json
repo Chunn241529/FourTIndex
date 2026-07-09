@@ -1,20 +1,20 @@
 {
-  "captured_at": "2026-07-09T10:17:48.525201+00:00",
+  "captured_at": "2026-07-09T17:20:25.202719+00:00",
   "query": "embedding index search mcp server",
   "tokenizer": "chars/4 approximation",
-  "files_scanned": 61,
-  "lines_scanned": 10703,
-  "scan_ms": 2052.574800000002,
-  "full_context_tokens": 107834,
-  "targeted_context_tokens": 7623,
-  "full_context_cost_usd": 0.323502,
-  "targeted_context_cost_usd": 0.022869,
-  "context_reduction_x": 14.145874327692509,
-  "cost_reduction_pct": 92.93080104605227,
+  "files_scanned": 62,
+  "lines_scanned": 11079,
+  "scan_ms": 2262.0008000012604,
+  "full_context_tokens": 112162,
+  "targeted_context_tokens": 7615,
+  "full_context_cost_usd": 0.336486,
+  "targeted_context_cost_usd": 0.022845,
+  "context_reduction_x": 14.72908732764281,
+  "cost_reduction_pct": 93.21071307572974,
   "top_files": [
     {
       "file": "src/mcp_server.py",
-      "score": 227
+      "score": 246
     },
     {
       "file": "tests/test_mcp_server.py",
@@ -22,7 +22,7 @@
     },
     {
       "file": "README.md",
-      "score": 182
+      "score": 195
     },
     {
       "file": "main.py",
@@ -34,7 +34,7 @@
     },
     {
       "file": ".agents/skills/FourTIndex/SKILL.md",
-      "score": 73
+      "score": 79
     },
     {
       "file": "src/templates/SKILL.md",

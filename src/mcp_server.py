@@ -193,30 +193,33 @@ def _append_budget_warning(content: str) -> str:
         pass
     return content
 
-def _auto_reindex_if_needed(project_name: str) -> None:
-    """Checks if any files in the project have changed and indexes the project if so."""
+# Query cache for search_codebase: { (project, query, limit, file_ext, lang, out_json): result_str }
+_query_cache = {}
+
+def _auto_reindex_if_needed(project_name: str) -> bool:
+    """Checks if any files in the project have changed and indexes the project if so. Returns True if reindexed."""
     import time
     global _last_auto_index_time
     
     # Check rate limit to prevent too many filesystem hits
     now = time.time()
     if now - _last_auto_index_time.get(project_name, 0) < 2.0:
-        return
+        return False
     _last_auto_index_time[project_name] = now
     
     try:
         proj_path = db.get_project_path(project_name)
         if not proj_path or not os.path.exists(proj_path):
-            return
+            return False
             
         from src.manifest import IndexManifest
         manifest = IndexManifest(os.path.dirname(config.db_persist_directory))
         project = manifest.get_project(project_name)
         if not project:
-            return
+            return False
         store = manifest.active_store(project)
         if not store:
-            return
+            return False
             
         existing_files = store.get("files", {})
         
@@ -263,8 +266,44 @@ def _auto_reindex_if_needed(project_name: str) -> None:
             service = IndexingService(config)
             result = service.index_project(proj_path, project_name)
             logger.info(f"Auto-reindex completed: {result.summary()}")
+            return True
+            
     except Exception as e:
         logger.error(f"Error in _auto_reindex_if_needed: {e}")
+        
+    return False
+
+def reciprocal_rank_fusion(vector_results: list[dict], fts_results: list[dict], k: int = 60) -> list[dict]:
+    """Combines vector search and FTS5 search results using Reciprocal Rank Fusion (RRF)."""
+    scores = {}
+    item_map = {}
+    
+    # Process vector results
+    for rank, item in enumerate(vector_results):
+        item_id = item["id"]
+        scores[item_id] = scores.get(item_id, 0.0) + 1.0 / (k + rank + 1)
+        item_map[item_id] = item
+        
+    # Process FTS results
+    for rank, item in enumerate(fts_results):
+        item_id = item["id"]
+        scores[item_id] = scores.get(item_id, 0.0) + 1.0 / (k + rank + 1)
+        if item_id not in item_map:
+            item_map[item_id] = item
+            
+    # Sort by RRF score descending
+    sorted_ids = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
+    
+    merged_results = []
+    for item_id in sorted_ids:
+        item = item_map[item_id]
+        # Store original scores but use RRF score for sorting
+        item["original_score"] = item.get("score", 0.0)
+        item["score"] = scores[item_id]
+        merged_results.append(item)
+        
+    return merged_results
+
 
 @mcp.tool()
 def search_codebase(query: str, project_name: str = None, limit: int = 5, file_ext: str = None, language: str = None, output_json: bool = False) -> str:
@@ -282,24 +321,81 @@ def search_codebase(query: str, project_name: str = None, limit: int = 5, file_e
         project_name = detect_active_project()
     logger.info(f"search_codebase called with query: '{query}', file_ext: '{file_ext}', language: '{language}', output_json: {output_json}")
     try:
-        _auto_reindex_if_needed(project_name)
+        from src.keyword_search import is_valid_keyword, search_exact_keyword, format_keyword_results
+        global _query_cache
+        
+        did_reindex = _auto_reindex_if_needed(project_name)
+        if did_reindex or len(_query_cache) > 1000:
+            _query_cache.clear()
+            
+        # Check cache
+        cache_key = (project_name, query, limit, file_ext, language, output_json)
+        if cache_key in _query_cache:
+            logger.info(f"Returning cached result for query: '{query}'")
+            return _query_cache[cache_key]
+            
         formatted_ext = None
         if file_ext:
             formatted_ext = file_ext if file_ext.startswith(".") else f".{file_ext}"
             formatted_ext = formatted_ext.lower()
             
+        # Fast Path: Exact Keyword Search
+        if is_valid_keyword(query):
+            logger.info(f"Query '{query}' qualifies for exact Keyword Search.")
+            exts = [formatted_ext] if formatted_ext else config.supported_extensions
+            
+            # Fetch the actual project path from the database
+            project_path = db.get_project_path(project_name)
+            
+            if project_path:
+                kw_results = search_exact_keyword(project_path, query, exts)
+                
+                if kw_results:
+                    logger.info(f"Fast path successful: Found exact match for '{query}'.")
+                    if output_json:
+                        import json
+                        # Format to match the semantic search schema
+                        json_results = []
+                        for kw in kw_results:
+                            json_results.append({
+                                "file_path": kw.get("file"),
+                                "start_line": kw.get("line"),
+                                "end_line": kw.get("line") + kw.get("content", "").count("\n"),
+                                "content": kw.get("content"),
+                                "score": 1.0,
+                                "score_type": "exact_match",
+                                "indexed_at": "now",
+                                "source_hash": "exact_match"
+                            })
+                        res = json.dumps(json_results, indent=2)
+                        _query_cache[cache_key] = res
+                        return res
+                    res = format_keyword_results(query, kw_results)
+                    _query_cache[cache_key] = res
+                    return res
+        
+        # Slow Path: Semantic Vector Search & FTS5 Hybrid Search
         project_db, manager, project, store = load_project_context(config, project_name)
         query_vector = manager.embed_query(query)
         
-        # 1. Determine candidates limit (retrieve more for better diversification/reranking)
+        # 1. Determine candidates limit
         if config.rerank_enabled:
             candidates_limit = max(30, config.rerank_candidates_limit)
         else:
             candidates_limit = max(15, limit * 2)
             
-        candidates = project_db.search_project_code(
+        # Run Vector search
+        vector_candidates = project_db.search_project_code(
             project["project_id"], store["store_id"], query_vector, candidates_limit, formatted_ext, language
         )
+        
+        # Run FTS5 search (BM25)
+        fts_candidates = project_db.search_project_code_fts(
+            project["project_id"], store["store_id"], query, candidates_limit
+        )
+        
+        # Merge using Reciprocal Rank Fusion (RRF)
+        candidates = reciprocal_rank_fusion(vector_candidates, fts_candidates)
         
         if not candidates:
             results = []
@@ -326,10 +422,25 @@ def search_codebase(query: str, project_name: str = None, limit: int = 5, file_e
             for c in candidates:
                 meta = c.get("metadata", {})
                 file_path = meta.get("file_path", "")
-                score = c.get("rerank_score", c["score"])
+                
+                # Blended Hybrid Score:
+                # We blend Rerank score (80% weight) and RRF score (20% weight).
+                # This ensures that even if rerank_score is 0.0 (due to local LLM parser failure),
+                # the chunk still retains 20% of its FTS/Vector RRF score and doesn't get completely tanked!
+                # We scale raw RRF score to 0..1 range (max possible RRF score is ~0.033, so scale by 30).
+                raw_rrf_score = c.get("score", 0.0)
+                scaled_rrf = min(1.0, raw_rrf_score * 30.0)
+                
+                rerank_score = c.get("rerank_score", 0.0) if "rerank_score" in c else scaled_rrf
+                
+                # Blend scores if Reranker ran
+                if "rerank_score" in c:
+                    blended_score = scaled_rrf * 0.2 + rerank_score * 0.8
+                else:
+                    blended_score = scaled_rrf
                 
                 count = file_counts.get(file_path, 0)
-                decayed_score = score * (0.75 ** count)
+                decayed_score = blended_score * (0.75 ** count)
                 c["adjusted_score"] = decayed_score
                 file_counts[file_path] = count + 1
                 
@@ -359,6 +470,26 @@ def search_codebase(query: str, project_name: str = None, limit: int = 5, file_e
                 results.append(r)
                 if len(results) >= limit:
                     break
+                    
+            # Adaptive Threshold Fallback: If all candidates were filtered out due to low reranker scores (<= 0.0),
+            # fallback to taking the top candidates anyway to avoid returning empty results.
+            if not results and sorted_candidates:
+                logger.info("Adaptive Threshold triggered: falling back to top candidates ignoring <= 0.0 filter.")
+                for r in sorted_candidates[:min(limit, 3)]:
+                    meta = r["metadata"]
+                    file_path = meta.get("file_path")
+                    expected_hash = meta.get("source_hash") or meta.get("hash")
+                    stale = False
+                    if file_path:
+                        abs_p = os.path.abspath(os.path.join(proj_path, file_path))
+                        if os.path.exists(abs_p):
+                            curr_hash = indexer.compute_file_hash(abs_p)
+                            if curr_hash != expected_hash:
+                                stale = True
+                        else:
+                            stale = True
+                    r["stale"] = stale
+                    results.append(r)
         
         if output_json:
             json_results = []
@@ -375,7 +506,9 @@ def search_codebase(query: str, project_name: str = None, limit: int = 5, file_e
                     "indexed_at": meta.get("indexed_at", "unknown"),
                     "source_hash": meta.get("source_hash") or meta.get("hash")
                 })
-            return json.dumps(json_results, indent=2)
+            res = json.dumps(json_results, indent=2)
+            _query_cache[cache_key] = res
+            return res
 
         if not results:
             return (
@@ -395,7 +528,9 @@ def search_codebase(query: str, project_name: str = None, limit: int = 5, file_e
                 f"=== FILE: {meta.get('file_path')} | Lines: {meta.get('start_line')}-{meta.get('end_line')} | {score_type}: {score_val:.4f} | Freshness: [{freshness_str}] ===\n"
                 f"{r['content']}\n"
             )
-        return _post_process_tool_output("\n".join(formatted), project_name)
+        res = _post_process_tool_output("\n".join(formatted), project_name)
+        _query_cache[cache_key] = res
+        return res
     except Exception as e:
         log_error(f"search_codebase: {str(e)}")
         logger.error(f"Error in search_codebase: {e}")

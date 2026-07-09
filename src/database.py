@@ -55,11 +55,27 @@ class Database:
                 self.client.delete_collection(name)
             except Exception:
                 pass
+        # Sync with FTS5
+        try:
+            import sqlite3
+            with sqlite3.connect(self.registry_db_path) as conn:
+                conn.execute("DELETE FROM code_chunks_fts WHERE project_id = ? AND store_id = ?", (project_id, store_id))
+                conn.commit()
+        except Exception:
+            pass
 
     def delete_legacy_project(self, project_name: str) -> None:
         where = {"project_name": project_name}
         self.code_chunks.delete(where=where)
         self.file_outlines.delete(where=where)
+        # Sync with FTS5
+        try:
+            import sqlite3
+            with sqlite3.connect(self.registry_db_path) as conn:
+                conn.execute("DELETE FROM code_chunks_fts WHERE project_name = ?", (project_name,))
+                conn.commit()
+        except Exception:
+            pass
 
     def upsert_project_records(
         self,
@@ -71,6 +87,33 @@ class Database:
         code, outlines = self.get_project_collections(project_id, store_id)
         self._upsert_records(code, code_records)
         self._upsert_records(outlines, outline_records)
+        
+        # Sync with FTS5
+        if code_records:
+            try:
+                import sqlite3
+                with sqlite3.connect(self.registry_db_path) as conn:
+                    data_to_insert = []
+                    for item in code_records:
+                        proj_name = item["metadata"].get("project_name", "")
+                        file_path = item["metadata"].get("file_path", "")
+                        data_to_insert.append((
+                            item["id"],
+                            item["document"],
+                            proj_name,
+                            file_path,
+                            project_id,
+                            store_id
+                        ))
+                    
+                    conn.executemany("""
+                        INSERT OR REPLACE INTO code_chunks_fts (id, content, project_name, file_path, project_id, store_id)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, data_to_insert)
+                    conn.commit()
+            except Exception as e:
+                import sys
+                sys.stderr.write(f"Warning: Failed to index in FTS5: {e}\n")
 
     def _upsert_records(self, collection, records: list[dict]) -> None:
         if not records:
@@ -96,6 +139,17 @@ class Database:
         code, outlines = self.get_project_collections(project_id, store_id)
         if code_ids:
             code.delete(ids=code_ids)
+            # Sync with FTS5
+            try:
+                import sqlite3
+                with sqlite3.connect(self.registry_db_path) as conn:
+                    for i in range(0, len(code_ids), 999):
+                        batch = code_ids[i:i+999]
+                        placeholders = ",".join("?" for _ in batch)
+                        conn.execute(f"DELETE FROM code_chunks_fts WHERE id IN ({placeholders})", batch)
+                    conn.commit()
+            except Exception:
+                pass
         if outline_ids:
             outlines.delete(ids=outline_ids)
 
@@ -150,6 +204,60 @@ class Database:
             for index, document in enumerate(documents)
         ]
 
+    def search_project_code_fts(
+        self,
+        project_id: str,
+        store_id: str,
+        query: str,
+        limit: int = 30,
+    ) -> list[dict]:
+        """Searches project code chunks using SQLite FTS5 BM25 search."""
+        import sqlite3
+        import re
+        
+        words = [w for w in re.findall(r'\w+', query) if w]
+        if not words:
+            return []
+        
+        # Broad match using OR for ranking
+        match_expr = " OR ".join(words)
+        results = []
+        
+        try:
+            with sqlite3.connect(self.registry_db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT id FROM code_chunks_fts 
+                    WHERE project_id = ? AND store_id = ? AND content MATCH ?
+                    LIMIT ?
+                """, (project_id, store_id, match_expr, limit))
+                ids = [row[0] for row in cursor.fetchall()]
+                
+                if ids:
+                    # Fetch documents from ChromaDB
+                    code, _ = self.get_project_collections(project_id, store_id)
+                    retrieved = code.get(ids=ids, include=["documents", "metadatas"])
+                    if retrieved and "documents" in retrieved and retrieved["documents"]:
+                        docs = retrieved["documents"]
+                        metas = retrieved["metadatas"]
+                        retrieved_ids = retrieved["ids"]
+                        
+                        id_map = {retrieved_ids[i]: (docs[i], metas[i]) for i in range(len(retrieved_ids))}
+                        for rank, item_id in enumerate(ids):
+                            if item_id in id_map:
+                                doc, meta = id_map[item_id]
+                                results.append({
+                                    "id": item_id,
+                                    "content": doc,
+                                    "metadata": meta,
+                                    "fts_rank": rank
+                                })
+        except Exception as e:
+            import sys
+            sys.stderr.write(f"Warning: FTS5 search error: {e}\n")
+            
+        return results
+
     def get_project_outline(self, project_id: str, store_id: str, file_path: str) -> str | None:
         _, outlines = self.get_project_collections(project_id, store_id)
         result = outlines.get(where={"file_path": file_path}, include=["documents"])
@@ -174,8 +282,16 @@ class Database:
         try:
             self.code_chunks.delete(where=where_filter)
             self.file_outlines.delete(where=where_filter)
-        except Exception as e:
-            # If the database is empty or filters have issues, catch safely
+        except Exception:
+            pass
+            
+        # Sync with FTS5
+        try:
+            import sqlite3
+            with sqlite3.connect(self.registry_db_path) as conn:
+                conn.execute("DELETE FROM code_chunks_fts WHERE project_name = ? AND file_path = ?", (project_name, relative_path))
+                conn.commit()
+        except Exception:
             pass
 
     def upsert_code_chunks(self, ids: list[str], embeddings: list[list[float]], documents: list[str], metadatas: list[dict]):
@@ -378,6 +494,21 @@ class Database:
                     last_updated TEXT
                 )
             """)
+            try:
+                # virtual table code_chunks_fts for hybrid search BM25
+                conn.execute("""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS code_chunks_fts USING fts5(
+                        id UNINDEXED, 
+                        content, 
+                        project_name UNINDEXED,
+                        file_path UNINDEXED,
+                        project_id UNINDEXED,
+                        store_id UNINDEXED
+                    )
+                """)
+            except Exception as e:
+                import sys
+                sys.stderr.write(f"Warning: FTS5 not supported in sqlite3: {e}\n")
             conn.commit()
 
     def save_project_roadmap(self, project_name: str, directory_tree: dict, framework_signatures: list[str]):
