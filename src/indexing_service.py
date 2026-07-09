@@ -279,7 +279,9 @@ class IndexingService:
             digest = hashlib.sha256(record.relative_path.encode("utf-8")).hexdigest()[:16]
             file_ext = os.path.splitext(record.relative_path)[1].lower()
             from src.indexer import EXTENSION_TO_LANGUAGE
+            import datetime
             lang = EXTENSION_TO_LANGUAGE.get(file_ext, "generic")
+            indexed_at_str = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
             metadata_base = {
                 "project_id": project["project_id"],
                 "project_name": result.project_name,
@@ -288,6 +290,8 @@ class IndexingService:
                 "file_ext": file_ext,
                 "language": lang,
                 "hash": record.content_hash,
+                "source_hash": record.content_hash,
+                "indexed_at": indexed_at_str,
             }
             for index, (chunk, embedding) in enumerate(
                 zip(record.chunks, record.chunk_embeddings)

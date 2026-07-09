@@ -512,6 +512,37 @@ class Database:
                     elif entry in ("main.lua", "init.lua"):
                         if os.path.exists(os.path.join(current_dir, "default.project.json")):
                             detected_signatures.add("Roblox (Lua)")
+                    elif entry in ("pyproject.toml", "setup.py", "requirements.txt", "Pipfile", "poetry.lock"):
+                        detected_signatures.add("Python")
+                        if entry == "pyproject.toml":
+                            try:
+                                with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+                                    toml_content = f.read().lower()
+                                    if "fastapi" in toml_content:
+                                        detected_signatures.add("FastAPI")
+                                    if "django" in toml_content:
+                                        detected_signatures.add("Django")
+                                    if "pytest" in toml_content:
+                                        detected_signatures.add("pytest")
+                            except Exception:
+                                pass
+                        elif entry == "requirements.txt":
+                            try:
+                                with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+                                    req_content = f.read().lower()
+                                    if "fastapi" in req_content:
+                                        detected_signatures.add("FastAPI")
+                                    if "django" in req_content:
+                                        detected_signatures.add("Django")
+                                    if "pytest" in req_content:
+                                        detected_signatures.add("pytest")
+                            except Exception:
+                                pass
+                    elif entry == "manage.py":
+                        detected_signatures.add("Django")
+                        detected_signatures.add("Python")
+                    elif ext == ".py":
+                        detected_signatures.add("Python")
                     
                     node["children"].append({
                         "name": entry,

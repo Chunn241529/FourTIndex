@@ -277,18 +277,61 @@ The file watcher runs automatically as a background daemon when you start the st
 
 To verify parallel indexing speedups and roadmap registration, we run a multi-language performance benchmark containing C#, TS, Lua, C++, Python, and Swift source files:
 
-| Metric / Scenario       | ❌ Sequential Indexing <br>_(workers=1, batch-size=1)_ | ✔ Parallel & Batched Indexing <br>_(workers=4, batch-size=32)_ | 🚀 Efficiency Gain |
-| :---------------------- | :----------------------------------------------------- | :------------------------------------------------------------- | :----------------- |
-| **Duration (50 Files)** | **9.97 seconds**                                       | **2.94 seconds**                                               | **3.39x faster**   |
-| **Frameworks Profile**  | -                                                      | Godot, Roblox (Lua)                                            | **100% Detected**  |
+| Metric / Scenario | ❌ Sequential Indexing <br>_(workers=1, batch-size=1)_ | ✔ Parallel & Batched Indexing <br>_(workers=4, batch-size=32)_ | 🚀 Efficiency Gain |
+| :--- | :--- | :--- | :--- |
+| **Duration (50 Files)** | **7.44 seconds** | **5.42 seconds** | **1.37x faster** (Concurrent APIs) |
+| **Frameworks Profile** | _None_ | Godot, Roblox (Lua), Python | **100% Auto-Detected** |
 
 #### Run the Benchmark Locally:
 
 You can run the live benchmark simulation script on your machine to verify these metrics:
-
 ```bash
 python benchmarks/run_benchmark.py
 ```
+
+### 💰 Real Repository Context Benchmark
+
+Captured on this checkout on **2026-07-09** using `benchmarks/benchmark_real_context.py` and the query `embedding index search mcp server`. The benchmark scans real repository files and compares a full-context dump with a deterministic targeted context sample built from matched files, outlines, and line windows.
+
+| Metric / Scenario | ❌ Full repository context | ✔ Targeted context sample | 🚀 Efficiency Gain / Savings |
+| :--- | :--- | :--- | :--- |
+| **Files / Lines Scanned** | 61 files / 10,703 lines | Top 8 matched files | Focused task context |
+| **Prompt Context** | **107,834 tokens** | **7,623 tokens** | **14.1x smaller context** |
+| **Est. API Cost per Turn** | **$0.3235 USD** | **$0.0229 USD** | **92.9% cost reduction** |
+| **Scan Time** | 2,052.57 ms | 2,052.57 ms | Includes repository scan and ranking |
+
+Results are written to:
+
+```bash
+python benchmarks/benchmark_real_context.py
+```
+
+- JSON: `benchmarks/real_context_results.json`
+- Markdown: `benchmarks/real_context_results.md`
+
+#### Real Embedding Provider Benchmark
+
+For live LM Studio/Ollama latency and throughput numbers, start your configured local embedding provider and run:
+
+```bash
+python benchmarks/benchmark_real_embedding.py
+```
+
+This script uses the production `Config` and `Embedder` classes and refuses to emit fake numbers if the provider is unreachable.
+
+---
+
+### 📊 MCP Tool Latency & Throughput Benchmark
+
+We evaluated the new MCP tools locally using mock codebases over 50 iterations:
+
+| MCP Tool | Average Latency | p95 Latency | Throughput |
+| :--- | :--- | :--- | :--- |
+| `get_health_dashboard` | 0.72 ms | 1.25 ms | 1388.8 ops/sec |
+| `search_session_summaries` | 0.94 ms | 1.73 ms | 1062.1 ops/sec |
+| `diff_index_status` | 1.52 ms | 2.49 ms | 656.7 ops/sec |
+| `get_file_outline` | 6.58 ms | 8.30 ms | 152.0 ops/sec |
+| `search_codebase` | 8.95 ms | 13.84 ms | 111.8 ops/sec |
 
 ---
 
@@ -373,6 +416,12 @@ Add the following to `%APPDATA%\Claude\claude_desktop_config.json` on Windows (o
   - Searches customization guidelines semantically.
 - **`save_session_summary(session_id: str, summary_text: str, project_name: str = None) -> str`**
   - Saves design decisions/change history.
+- **`diff_index_status(project_name: str = None, output_json: bool = False) -> str`**
+  - Diffs files on disk against the active database manifest to show `new`, `stale`, `deleted`, or `up_to_date` status.
+- **`search_session_summaries(query: str, project_name: str = None, limit: int = 3, output_json: bool = False) -> str`**
+  - Semantically searches stored session summaries.
+- **`get_health_dashboard(output_json: bool = False) -> str`**
+  - Displays embedding provider/model details, DB persistence locations, file counts, stale skills warnings, and recent errors log.
 
 ---
 

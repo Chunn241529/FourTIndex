@@ -44,22 +44,47 @@ class LMStudioProvider(EmbeddingProvider):
         try:
             res = self.lm_client.embeddings(self.model, texts)
             if "error" in res:
-                raise ProviderUnavailableError(
-                    f"lmstudio model '{self.model}' is unavailable: {res['error']}"
-                )
+                raise RuntimeError(res["error"])
             data = res.get("data", [])
             sorted_data = sorted(data, key=lambda x: x.get("index", 0))
             embeddings = [x.get("embedding", []) for x in sorted_data]
             return self._validate(embeddings, len(texts))
+        except Exception as exc:
+            # Fallback to sequential generation on failure (e.g. LMStudio batch issues)
+            if len(texts) <= 1:
+                if isinstance(exc, ProviderError):
+                    raise
+                raise ProviderUnavailableError(
+                    f"lmstudio model '{self.model}' is unavailable"
+                ) from exc
+                
+            self.request_count -= 1
+            fallback_embeddings = []
+            for text in texts:
+                try:
+                    fallback_embeddings.append(self.embed_query(text))
+                except Exception as inner_exc:
+                    raise ProviderUnavailableError(
+                        f"lmstudio model '{self.model}' is unavailable during fallback"
+                    ) from inner_exc
+            return fallback_embeddings
+
+    def embed_query(self, text: str) -> list[float]:
+        self.request_count += 1
+        try:
+            res = self.lm_client.embeddings(self.model, text)
+            if "error" in res:
+                raise RuntimeError(res["error"])
+            data = res.get("data", [])
+            if not data:
+                raise RuntimeError("Empty embedding data")
+            return data[0].get("embedding", [])
         except Exception as exc:
             if isinstance(exc, ProviderError):
                 raise
             raise ProviderUnavailableError(
                 f"lmstudio model '{self.model}' is unavailable"
             ) from exc
-
-    def embed_query(self, text: str) -> list[float]:
-        return self.embed_documents([text])[0]
 
 
 def create_provider(name: str, config) -> EmbeddingProvider:
@@ -71,8 +96,11 @@ def create_provider(name: str, config) -> EmbeddingProvider:
         return LMStudioProvider(config.lmstudio_embedding_model, 0, config)
     elif normalized == "ollama":
         return OllamaProvider(config.ollama_embedding_model, 0, config.ollama_host)
+    elif normalized == "fake":
+        from tests.test_indexing_service import FakeProvider
+        return FakeProvider()
     else:
         raise ProviderError(
-            f"Unsupported embedding provider '{name}'; FourTIndex supports 'ollama' and 'lmstudio'"
+            f"Unsupported embedding provider '{name}'; FourTIndex supports 'ollama', 'lmstudio', and 'fake'"
         )
 

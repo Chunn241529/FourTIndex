@@ -1,0 +1,48 @@
+{
+  "captured_at": "2026-07-09T10:17:48.525201+00:00",
+  "query": "embedding index search mcp server",
+  "tokenizer": "chars/4 approximation",
+  "files_scanned": 61,
+  "lines_scanned": 10703,
+  "scan_ms": 2052.574800000002,
+  "full_context_tokens": 107834,
+  "targeted_context_tokens": 7623,
+  "full_context_cost_usd": 0.323502,
+  "targeted_context_cost_usd": 0.022869,
+  "context_reduction_x": 14.145874327692509,
+  "cost_reduction_pct": 92.93080104605227,
+  "top_files": [
+    {
+      "file": "src/mcp_server.py",
+      "score": 227
+    },
+    {
+      "file": "tests/test_mcp_server.py",
+      "score": 220
+    },
+    {
+      "file": "README.md",
+      "score": 182
+    },
+    {
+      "file": "main.py",
+      "score": 119
+    },
+    {
+      "file": "src/indexing_service.py",
+      "score": 89
+    },
+    {
+      "file": ".agents/skills/FourTIndex/SKILL.md",
+      "score": 73
+    },
+    {
+      "file": "src/templates/SKILL.md",
+      "score": 64
+    },
+    {
+      "file": "benchmarks/benchmark_mcp.py",
+      "score": 60
+    }
+  ]
+}

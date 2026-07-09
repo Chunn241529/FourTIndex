@@ -111,12 +111,9 @@ class Indexer:
 
     def parse_with_tree_sitter(self, content: str, file_path: str, relative_path: str, lang_name: str) -> list[dict]:
         """Parses a file using tree-sitter to extract class/container outlines and functions/methods."""
-        try:
-            from tree_sitter_languages import get_parser
-        except ImportError as e:
-            raise ImportError(f"tree-sitter-languages is required for {lang_name} parsing: {e}")
+        from src.tree_sitter_compat import get_tree_sitter_parser
 
-        parser = get_parser(lang_name)
+        parser = get_tree_sitter_parser(lang_name)
         if not parser:
             raise ValueError(f"Failed to load tree-sitter parser for {lang_name}")
 

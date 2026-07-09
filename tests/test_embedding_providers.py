@@ -27,7 +27,7 @@ def test_create_provider_rejects_third_party_provider():
         },
     )()
 
-    with pytest.raises(ProviderError, match="supports 'ollama' and 'lmstudio'"):
+    with pytest.raises(ProviderError, match="supports 'ollama', 'lmstudio', and 'fake'"):
         create_provider("remote", config)
 
 
@@ -52,4 +52,3 @@ def test_lmstudio_provider_validates_embeddings(monkeypatch):
 
     assert provider.embed_documents(["document"]) == [[1.0, 2.0, 3.0]]
     assert provider.request_count == 1
-

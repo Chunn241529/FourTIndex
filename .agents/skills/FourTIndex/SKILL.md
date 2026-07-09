@@ -11,36 +11,42 @@ You should use the tools provided by FourTIndex to gather codebase context and p
 
 ## MCP Tools API & Type Signatures
 
-If you are running in an MCP-enabled environment, the following tools are registered under the name `FourTIndex`. Note the parameter types:
+If you are running in an MCP-enabled environment, the following tools are registered under the name `FourTIndex`. All tools now accept an optional `output_json: bool = False` parameter to return structured JSON data instead of formatted text. Note the signatures:
 
-1. `search_codebase(query: str, project_name: str = None, limit: int = 5, file_ext: str = None) -> str`
+1. `search_codebase(query: str, project_name: str = None, limit: int = 5, file_ext: str = None, output_json: bool = False) -> str`
    - Performs semantic vector search on code chunks. `project_name` defaults to `None` and is dynamically resolved to the active project based on the caller's working directory.
-2. `get_file_outline(file_path: str, project_name: str = None) -> str`
+2. `get_file_outline(file_path: str, project_name: str = None, output_json: bool = False) -> str`
    - Retrieves class outlines, function names, and import structures. `project_name` is optional.
-3. `get_symbol_definition(symbol_name: str, project_name: str = None) -> str`
+3. `get_symbol_definition(symbol_name: str, project_name: str = None, output_json: bool = False) -> str`
    - Retrieves the exact class or function implementation. `project_name` is optional.
-4. `read_code_lines(file_path: str, start_line: int, end_line: int, project_name: str = None) -> str`
+4. `read_code_lines(file_path: str, start_line: int, end_line: int, project_name: str = None, output_json: bool = False) -> str`
    - Reads exact physical lines. `project_name` is optional.
 5. `save_session_summary(session_id: str, summary_text: str, project_name: str = None) -> str`
    - Stores design decisions or change logs. `project_name` is optional.
-6. `index_project(project_path: str = ".", project_name: str = None) -> str`
+6. `index_project(project_path: str = ".", project_name: str = None, output_json: bool = False) -> str`
    - Forces a re-index of the codebase. `project_name` is optional.
 7. `index_skill(skill_path: str, project_name: str = None) -> str`
    - Indexes a specific skill's `SKILL.md` file. `project_name` is optional.
-8. `search_skills(query: str, project_name: str = None, limit: int = 3) -> str`
+8. `search_skills(query: str, project_name: str = None, limit: int = 3, output_json: bool = False) -> str`
    - Performs semantic vector search on indexed skill sections. `project_name` is optional.
-9. `get_skill_outline(skill_name: str, project_name: str = None) -> str`
+9. `get_skill_outline(skill_name: str, project_name: str = None, output_json: bool = False) -> str`
    - Retrieves the list of headings (sections) available. `project_name` is optional.
-10. `read_skill_section(skill_name: str, heading: str, project_name: str = None) -> str`
+10. `read_skill_section(skill_name: str, heading: str, project_name: str = None, output_json: bool = False) -> str`
     - Retrieves the exact markdown section content. `project_name` is optional.
 11. `get_project_roadmap(project_name: str = None) -> str`
     - Retrieves the full JSON structural overview (roadmap) and detected framework signatures. `project_name` is optional.
-12. `list_projects() -> str`
+12. `list_projects(output_json: bool = False) -> str`
     - Lists all registered projects in the registry database.
 13. `get_token_report() -> str`
     - Estimates and outputs the current session's input/output token usage.
 14. `clean_mem() -> str`
     - Unloads all configured models from VRAM/RAM.
+15. `diff_index_status(project_name: str = None, output_json: bool = False) -> str`
+    - Shows the index diff (new, stale, deleted, up-to-date files) before running index_project.
+16. `search_session_summaries(query: str, project_name: str = None, limit: int = 3, output_json: bool = False) -> str`
+    - Semantically searches session summaries stored in the database.
+17. `get_health_dashboard(output_json: bool = False) -> str`
+    - Returns details on the database paths, active embedding provider/model, file counts, stale skills, and recent errors.
 
 ## Codebase Metadata Schema
 
@@ -59,6 +65,8 @@ The Vector Database contains two primary collections: `code_chunks` (fine-graine
 * **`start_line`** (*int*): The 1-indexed start line of this chunk in the original file.
 * **`end_line`** (*int*): The 1-indexed end line of this chunk in the original file.
 * **`hash`** (*str*): The SHA256 hash of the file content when indexed.
+* **`source_hash`** (*str*): The SHA256 file hash recorded at indexing time (used to compute dynamic staleness/freshness warnings).
+* **`indexed_at`** (*str*): The ISO 8601 timestamp at which the file chunk was written to ChromaDB.
 
 ## Command Line Fallback (Cross-Platform)
 

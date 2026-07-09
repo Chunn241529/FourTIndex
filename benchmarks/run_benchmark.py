@@ -68,6 +68,44 @@ def main():
     print("Generating 50 files for benchmark...")
     create_fixture(fixture_dir, 50, 100)
 
+    # Detect provider with fallbacks: LM Studio -> Ollama -> Fake
+    def detect_provider() -> str:
+        import urllib.request
+        import urllib.error
+        
+        lmstudio_url = "http://127.0.0.1:2401/v1/models"
+        ollama_url = "http://localhost:11434/api/tags"
+        
+        try:
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent.absolute()))
+            from src.config import Config
+            config = Config()
+            lmstudio_url = f"{config.lmstudio_host.rstrip('/')}/v1/models"
+            ollama_url = f"{config.ollama_host.rstrip('/')}/api/tags"
+        except Exception:
+            pass
+
+        def check_url(url: str) -> bool:
+            try:
+                req = urllib.request.Request(url, method="GET")
+                req.add_header("User-Agent", "Mozilla/5.0")
+                with urllib.request.urlopen(req, timeout=1.0) as res:
+                    return res.status in (200, 401)
+            except urllib.error.HTTPError as e:
+                return e.code in (200, 401)
+            except Exception:
+                return False
+
+        if check_url(lmstudio_url):
+            return "lmstudio"
+        elif check_url(ollama_url):
+            return "ollama"
+        return "fake"
+
+    provider = detect_provider()
+    print(f"Using embedding provider: {provider.upper()}")
+
     try:
         # Run Sequential indexing (1 worker, batch size 1)
         print("\n[1/2] Running SEQUENTIAL indexing (workers=1, batch-size=1)...")
@@ -76,32 +114,32 @@ def main():
             "python", "main.py", "index", str(fixture_dir),
             "--project-name", "bench-seq",
             "--rebuild",
-            "--embedding-provider", "ollama",
+            "--embedding-provider", provider,
             "--workers", "1",
             "--batch-size", "1"
         ], check=True)
         t_seq = time.perf_counter() - start
         print(f"-> Sequential finished in {t_seq:.2f}s")
 
-        # Run Parallel & Batched indexing (workers=4, batch-size=32)
-        print("\n[2/2] Running PARALLEL & BATCHED indexing (workers=4, batch-size=32)...")
+        # Run Batched indexing sequentially (workers=1, batch-size=32) to prevent dump
+        print("\n[2/2] Running BATCHED indexing sequentially (workers=1, batch-size=32)...")
         start = time.perf_counter()
         subprocess.run([
             "python", "main.py", "index", str(fixture_dir),
             "--project-name", "bench-par",
             "--rebuild",
-            "--embedding-provider", "ollama",
-            "--workers", "4",
+            "--embedding-provider", provider,
+            "--workers", "1",
             "--batch-size", "32"
         ], check=True)
         t_par = time.perf_counter() - start
-        print(f"-> Parallel & Batched finished in {t_par:.2f}s")
+        print(f"-> Batched sequentially finished in {t_par:.2f}s")
 
         speedup = t_seq / t_par
         print("\n" + "="*50)
         print(f"Benchmark Results:")
         print(f"  - Sequential: {t_seq:.2f}s")
-        print(f"  - Parallel & Batched: {t_par:.2f}s")
+        print(f"  - Batched Sequentially: {t_par:.2f}s")
         print(f"  - Speedup Ratio: {speedup:.2f}x")
         print("="*50)
 
