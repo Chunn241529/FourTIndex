@@ -28,7 +28,7 @@ If you are running in an MCP-enabled environment, the following tools are regist
 7. `hibernate_session(current_task: str, next_steps: str, uncommitted_changes: str, project_name: str = None) -> str`
    - Saves the current session's progress and generates a Zero-Prompt Resume handoff file `.fourtindex_handoff.md`.
 6. `index_project(project_path: str = ".", project_name: str = None) -> str`
-   - Forces a re-index of the codebase. `project_name` is optional.
+   - Forces a re-index of the codebase. `project_name` is optional. **CRITICAL**: Always provide the ABSOLUTE PATH to your project root (e.g. `d:\project\FourTIndex`) for `project_path`. Do NOT use `.` as it will resolve to the MCP server's internal directory instead of your project.
 7. `index_skill(skill_path: str, project_name: str = None) -> str`
    - Indexes a specific skill's `SKILL.md` file. `project_name` is optional.
 8. `search_skills(query: str, project_name: str = None, limit: int = 3) -> str`

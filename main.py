@@ -293,6 +293,30 @@ def cmd_search_skills(args):
     except Exception as e:
         console.print(f"[bold red]Search Error:[/bold red] {e}")
 
+def cmd_summarize(args):
+    from src.mcp_server import summarize_file
+    console.print(f"[bold blue]Summarizing file:[/bold blue] {args.path}")
+    try:
+        summary = summarize_file(args.path, project_name=args.project_name)
+        console.print("\n[bold green]Summary:[/bold green]")
+        console.print(Markdown(summary))
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+
+def cmd_hibernate(args):
+    from src.mcp_server import hibernate_session
+    console.print("[bold blue]Hibernating session...[/bold blue]")
+    try:
+        result = hibernate_session(
+            current_task=args.current_task,
+            next_steps=args.next_steps,
+            uncommitted_changes=args.uncommitted_changes,
+            project_name=args.project_name
+        )
+        console.print(f"[bold green]Success:[/bold green]\n{result}")
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+
 def cmd_setup_ollama(args):
     from src.setup_ollama import run_setup
     run_setup()
@@ -441,6 +465,20 @@ def main():
     p_search_skills.add_argument("--limit", type=int, default=3, help="Max results to display")
     p_search_skills.set_defaults(func=cmd_search_skills)
     
+    # summarize command
+    p_summarize = subparsers.add_parser("summarize", help="Summarize a large file using local LLM")
+    p_summarize.add_argument("path", help="Path to the file to summarize")
+    p_summarize.add_argument("--project-name", help="Indexed project name")
+    p_summarize.set_defaults(func=cmd_summarize)
+    
+    # hibernate command
+    p_hibernate = subparsers.add_parser("hibernate", help="Save session state to .fourtindex_handoff.md")
+    p_hibernate.add_argument("--current-task", required=True, help="Description of current task")
+    p_hibernate.add_argument("--next-steps", required=True, help="Next steps to be done")
+    p_hibernate.add_argument("--uncommitted-changes", default="None", help="Any uncommitted changes info")
+    p_hibernate.add_argument("--project-name", help="Indexed project name")
+    p_hibernate.set_defaults(func=cmd_hibernate)
+
     # setup-ollama command
     p_setup_ollama = subparsers.add_parser("setup-ollama", help="Verify Ollama installation and pull required models")
     p_setup_ollama.set_defaults(func=cmd_setup_ollama)
