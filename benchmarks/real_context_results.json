@@ -1,10 +1,10 @@
 {
-  "captured_at": "2026-07-09T17:20:25.202719+00:00",
+  "captured_at": "2026-07-10T17:51:23.642736+00:00",
   "query": "embedding index search mcp server",
   "tokenizer": "chars/4 approximation",
   "files_scanned": 62,
   "lines_scanned": 11079,
-  "scan_ms": 2262.0008000012604,
+  "scan_ms": 1957.7754999991157,
   "full_context_tokens": 112162,
   "targeted_context_tokens": 7615,
   "full_context_cost_usd": 0.336486,

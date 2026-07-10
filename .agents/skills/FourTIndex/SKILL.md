@@ -11,44 +11,40 @@ You should use the tools provided by FourTIndex to gather codebase context and p
 
 ## MCP Tools API & Type Signatures
 
-If you are running in an MCP-enabled environment, the following tools are registered under the name `FourTIndex`. All tools now accept an optional `output_json: bool = False` parameter to return structured JSON data instead of formatted text. Note the signatures:
+If you are running in an MCP-enabled environment, the following tools are registered under the name `FourTIndex`. Note the parameter types:
 
-1. `search_codebase(query: str, project_name: str = None, limit: int = 5, file_ext: str = None, output_json: bool = False) -> str`
-   - Performs **True Hybrid Search** (SQLite FTS5 BM25 + ChromaDB Vector Search) merged via **Reciprocal Rank Fusion (RRF)**.
-   - Automatically handles low local reranker scores (e.g. 0.0) using **Adaptive Threshold Fallback**.
-   - Employs **Blended Hybrid Score** (combining 20% RRF and 80% Rerank weights) to prevent fragile local models from demoting exact keyword matches.
-2. `get_file_outline(file_path: str, project_name: str = None, output_json: bool = False) -> str`
+1. `search_codebase(query: str, project_name: str = None, limit: int = 5, file_ext: str = None) -> str`
+   - Performs semantic vector search on code chunks. `project_name` defaults to `None` and is dynamically resolved to the active project based on the caller's working directory.
+2. `get_file_outline(file_path: str, project_name: str = None) -> str`
    - Retrieves class outlines, function names, and import structures. `project_name` is optional.
-3. `get_symbol_definition(symbol_name: str, project_name: str = None, output_json: bool = False) -> str`
+3. `get_symbol_definition(symbol_name: str, project_name: str = None) -> str`
    - Retrieves the exact class or function implementation. `project_name` is optional.
-4. `read_code_lines(file_path: str, start_line: int, end_line: int, project_name: str = None, output_json: bool = False) -> str`
+4. `read_code_lines(file_path: str, start_line: int, end_line: int, project_name: str = None) -> str`
    - Reads exact physical lines. `project_name` is optional.
-5. `save_session_summary(session_id: str, summary_text: str, project_name: str = None) -> str`
+5. `summarize_file(file_path: str, project_name: str = None) -> str`
+   - Uses the local LLM to generate a concise summary of the provided file to save context tokens.
+6. `save_session_summary(session_id: str, summary_text: str, project_name: str = None) -> str`
    - Stores design decisions or change logs. `project_name` is optional.
-6. `index_project(project_path: str = ".", project_name: str = None, output_json: bool = False) -> str`
+7. `hibernate_session(current_task: str, next_steps: str, uncommitted_changes: str, project_name: str = None) -> str`
+   - Saves the current session's progress and generates a Zero-Prompt Resume handoff file `.fourtindex_handoff.md`.
+6. `index_project(project_path: str = ".", project_name: str = None) -> str`
    - Forces a re-index of the codebase. `project_name` is optional.
 7. `index_skill(skill_path: str, project_name: str = None) -> str`
    - Indexes a specific skill's `SKILL.md` file. `project_name` is optional.
-8. `search_skills(query: str, project_name: str = None, limit: int = 3, output_json: bool = False) -> str`
+8. `search_skills(query: str, project_name: str = None, limit: int = 3) -> str`
    - Performs semantic vector search on indexed skill sections. `project_name` is optional.
-9. `get_skill_outline(skill_name: str, project_name: str = None, output_json: bool = False) -> str`
+9. `get_skill_outline(skill_name: str, project_name: str = None) -> str`
    - Retrieves the list of headings (sections) available. `project_name` is optional.
-10. `read_skill_section(skill_name: str, heading: str, project_name: str = None, output_json: bool = False) -> str`
+10. `read_skill_section(skill_name: str, heading: str, project_name: str = None) -> str`
     - Retrieves the exact markdown section content. `project_name` is optional.
 11. `get_project_roadmap(project_name: str = None) -> str`
     - Retrieves the full JSON structural overview (roadmap) and detected framework signatures. `project_name` is optional.
-12. `list_projects(output_json: bool = False) -> str`
+12. `list_projects() -> str`
     - Lists all registered projects in the registry database.
 13. `get_token_report() -> str`
     - Estimates and outputs the current session's input/output token usage.
 14. `clean_mem() -> str`
     - Unloads all configured models from VRAM/RAM.
-15. `diff_index_status(project_name: str = None, output_json: bool = False) -> str`
-    - Shows the index diff (new, stale, deleted, up-to-date files) before running index_project.
-16. `search_session_summaries(query: str, project_name: str = None, limit: int = 3, output_json: bool = False) -> str`
-    - Semantically searches session summaries stored in the database.
-17. `get_health_dashboard(output_json: bool = False) -> str`
-    - Returns details on the database paths, active embedding provider/model, file counts, stale skills, and recent errors.
 
 ## Codebase Metadata Schema
 
@@ -67,8 +63,6 @@ The Vector Database contains two primary collections: `code_chunks` (fine-graine
 * **`start_line`** (*int*): The 1-indexed start line of this chunk in the original file.
 * **`end_line`** (*int*): The 1-indexed end line of this chunk in the original file.
 * **`hash`** (*str*): The SHA256 hash of the file content when indexed.
-* **`source_hash`** (*str*): The SHA256 file hash recorded at indexing time (used to compute dynamic staleness/freshness warnings).
-* **`indexed_at`** (*str*): The ISO 8601 timestamp at which the file chunk was written to ChromaDB.
 
 ## Command Line Fallback (Cross-Platform)
 
@@ -96,6 +90,10 @@ If MCP tools are not active, you can invoke FourTIndex via CLI using the local P
 > **CRITICAL: NO STEP SKIPPING ALLOWED!**
 > The LLM is strictly prohibited from skipping any part of the development, verification, indexing, or cleanup process. Every task must be executed through all specified stages sequentially. Shortcuts or skipping steps will lead to bug accumulation and project failure.
 
+> [!IMPORTANT]
+> **🚨 CRITICAL HANDOFF RULE: AUTO-RESUME MEMORY**
+> When starting a completely new chat session, the VERY FIRST THING you MUST DO is read the contents of the `.fourtindex_handoff.md` file located at the root of the project (using standard file reading tools if available, or ask the user to provide it). This file contains your hibernated memory (current task, uncommitted changes, next steps). Absolutely do not make any code changes or suggest solutions until you have fully loaded this handoff context.
+
 When answering questions or modifying code in this workspace, you MUST follow these optimization and verification stages:
 
 > [!CAUTION]
@@ -104,7 +102,6 @@ When answering questions or modifying code in this workspace, you MUST follow th
 > 2. **Context Bloat Warning**: If the active prompt size exceeds **35,000 tokens**, you MUST immediately advise the user to start a new chat session and transition using the Context Bridge.
 > 3. **File Size Reading Bound**: You are strictly prohibited from calling `read_code_lines` or `view_file` on ranges larger than **100 lines** without first calling `get_file_outline` and specifying a narrow, targeted line range.
 > 4. **No Duplicate Reads**: Do not call `read_code_lines` on the same file multiple times in a row.
-> 5. **Sequential Search Execution**: Running parallel search queries (e.g. concurrent subagents calling `search_codebase` simultaneously) on local LLM servers like LM Studio causes major queue queuing delays. Always run search queries sequentially to maintain fast response times.
 
 ### 1. Context Gathering Stage
 - **Never** read the entire codebase or list all directory trees recursively.

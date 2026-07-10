@@ -21,8 +21,12 @@ If you are running in an MCP-enabled environment, the following tools are regist
    - Retrieves the exact class or function implementation. `project_name` is optional.
 4. `read_code_lines(file_path: str, start_line: int, end_line: int, project_name: str = None) -> str`
    - Reads exact physical lines. `project_name` is optional.
-5. `save_session_summary(session_id: str, summary_text: str, project_name: str = None) -> str`
+5. `summarize_file(file_path: str, project_name: str = None) -> str`
+   - Uses the local LLM to generate a concise summary of the provided file to save context tokens.
+6. `save_session_summary(session_id: str, summary_text: str, project_name: str = None) -> str`
    - Stores design decisions or change logs. `project_name` is optional.
+7. `hibernate_session(current_task: str, next_steps: str, uncommitted_changes: str, project_name: str = None) -> str`
+   - Saves the current session's progress and generates a Zero-Prompt Resume handoff file `.fourtindex_handoff.md`.
 6. `index_project(project_path: str = ".", project_name: str = None) -> str`
    - Forces a re-index of the codebase. `project_name` is optional.
 7. `index_skill(skill_path: str, project_name: str = None) -> str`
@@ -85,6 +89,10 @@ If MCP tools are not active, you can invoke FourTIndex via CLI using the local P
 > [!IMPORTANT]
 > **CRITICAL: NO STEP SKIPPING ALLOWED!**
 > The LLM is strictly prohibited from skipping any part of the development, verification, indexing, or cleanup process. Every task must be executed through all specified stages sequentially. Shortcuts or skipping steps will lead to bug accumulation and project failure.
+
+> [!IMPORTANT]
+> **🚨 CRITICAL HANDOFF RULE: AUTO-RESUME MEMORY**
+> When starting a completely new chat session, the VERY FIRST THING you MUST DO is read the contents of the `.fourtindex_handoff.md` file located at the root of the project (using standard file reading tools if available, or ask the user to provide it). This file contains your hibernated memory (current task, uncommitted changes, next steps). Absolutely do not make any code changes or suggest solutions until you have fully loaded this handoff context.
 
 When answering questions or modifying code in this workspace, you MUST follow these optimization and verification stages:
 

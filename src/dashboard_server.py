@@ -280,7 +280,15 @@ class DashboardHTTPHandler(http.server.BaseHTTPRequestHandler):
                     if not model:
                         self.send_json({"error": "Missing 'model' parameter"}, status=400)
                         return
-                    res = client.unload_model(model)
+                    instance_id = data.get("instance_id")
+                    if not instance_id:
+                        loaded = client.list_models()
+                        if "data" in loaded:
+                            for m in loaded["data"]:
+                                if m.get("id") == model:
+                                    instance_id = m.get("instance_identifier") or m.get("instance_id")
+                                    break
+                    res = client.unload_model(model, instance_id=instance_id)
                 elif path == "/api/lmstudio/download":
                     model = data.get("model")
                     if not model:

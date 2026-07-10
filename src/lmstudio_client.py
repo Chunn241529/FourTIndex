@@ -48,9 +48,12 @@ class LMStudioClient:
             payload.update(extra_config)
         return self._request("/api/v1/models/load", method="POST", data=payload)
 
-    def unload_model(self, model: str) -> Dict[str, Any]:
+    def unload_model(self, model: str, instance_id: Optional[str] = None) -> Dict[str, Any]:
         """Unloads a model from memory via POST /api/v1/models/unload."""
-        return self._request("/api/v1/models/unload", method="POST", data={"model": model})
+        payload = {"model": model}
+        if instance_id:
+            payload["instance_id"] = instance_id
+        return self._request("/api/v1/models/unload", method="POST", data=payload)
 
     def download_model(self, model_url_or_repo: str) -> Dict[str, Any]:
         """Requests downloading a model via POST /api/v1/models/download."""

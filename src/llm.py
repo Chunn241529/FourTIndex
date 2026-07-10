@@ -91,3 +91,36 @@ class LLMClient:
                     f"Please verify that Ollama is running and you have pulled the model using 'ollama pull {self.model}'."
                 )
 
+    def summarize_code(self, code_content: str, file_path: str = "") -> str:
+        """Uses the local LLM to generate a concise summary of the provided code file."""
+        from src.token_meter import count_tokens
+        
+        # Guard against massive files
+        budget = 16000
+        tokens = count_tokens(code_content, self.model)
+        if tokens > budget:
+            code_content = code_content[:budget * 4] + "\n...[TRUNCATED DUE TO CONTEXT LIMIT]"
+            
+        prompt = (
+            f"Analyze the following code file '{file_path}' and provide a concise summary (max 3-5 sentences).\n"
+            f"Focus on the primary purpose, main classes/functions, and data flow. Do not output markdown code blocks of the original code.\n\n"
+            f"--- CODE ---\n{code_content}"
+        )
+        try:
+            if self.provider == "lmstudio":
+                messages = [{"role": "user", "content": prompt}]
+                response = self.lm_client.chat_completions(self.model, messages)
+                if "error" in response:
+                    raise RuntimeError(str(response["error"]))
+                choices = response.get("choices", [])
+                if choices:
+                    return choices[0].get("message", {}).get("content", "No summary generated.").strip()
+                return "No summary generated."
+            else:
+                response = self.client.chat(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                return response.get("message", {}).get("content", "No summary generated.").strip()
+        except Exception as e:
+            return f"[Summarizer Error] Failed to generate summary: {e}"

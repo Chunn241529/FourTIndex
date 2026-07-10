@@ -1,11 +1,11 @@
 # Real Repository Context Benchmark
 
-- Captured at: `2026-07-09T17:20:25.202719+00:00`
+- Captured at: `2026-07-10T17:51:23.642736+00:00`
 - Query: `embedding index search mcp server`
 - Tokenizer: `chars/4 approximation`
 - Files scanned: `62`
 - Lines scanned: `11079`
-- Scan time: `2262.00 ms`
+- Scan time: `1957.78 ms`
 
 | Scenario | Tokens | Est. input cost |
 | :--- | :--- | :--- |

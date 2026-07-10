@@ -10,3 +10,8 @@ This codebase is indexed locally via **fourTindex** (an MCP server & local vecto
 4. **Update DB after edits:** If you modify any code file, you MUST call `index_project` (or run CLI `fourtindex index .`) to update the vector database instantly (takes <1s due to 16x batch and incremental sync).
 5. **Free memory when done:** Call `clean_mem()` tool (or run CLI `fourtindex clean-mem`) when you are done with heavy vector searches or indexing, to release VRAM and RAM immediately and save system resources.
 6. **Save design history:** Call `save_session_summary` before concluding a task to log your design decisions in the database.
+
+
+> [!IMPORTANT]
+> **🚨 CRITICAL HANDOFF RULE: AUTO-RESUME MEMORY**
+> When starting a completely new chat session, the VERY FIRST THING you MUST DO is read the contents of the `.fourtindex_handoff.md` file located at the root of the project. This file contains your hibernated memory (current task, uncommitted changes, next steps). Absolutely do not make any code changes or suggest solutions until you have fully loaded this handoff context.
