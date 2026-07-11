@@ -699,6 +699,7 @@ def inject_handoff_rules(project_dir: str):
     
     targets = [
         os.path.join(project_dir, ".cursorrules"),
+        os.path.join(project_dir, ".codexrules"),
         os.path.join(project_dir, ".clinerules")
     ]
     

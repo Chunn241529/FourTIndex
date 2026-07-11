@@ -20,7 +20,7 @@
 
 ## 💡 The Problem with Modern AI Agents
 
-Modern AI Coding frameworks (**Claude Code, Cursor, Cline, OpenDevin, Aider, Codex, Antigravity**, etc.) are incredibly smart, but they all share a critical weakness when it comes to navigating large codebases:
+Modern AI Coding frameworks (**Claude Code, Cursor, Codex (OpenAI), OpenDevin, Aider, Cline, Antigravity**, etc.) are incredibly smart, but they all share a critical weakness when it comes to navigating large codebases:
 1. **Semantic Blindness:** They rely on standard `ripgrep` or basic AST parsers. If you ask them to "find the logic that splits the batch", and the function is actually named `chunk_array_size`, standard search fails.
 2. **Context Window Burn:** When these tools find a file, they often dump the *entire file* into the prompt. This causes extreme API costs, slow response times, and LLM hallucinations due to context overload.
 
@@ -54,7 +54,7 @@ Instead of your AI reading thousands of lines of irrelevant code, FourTIndex per
 
 ## ✨ Key Features
 
-- **Empowers ALL Frameworks:** Plug FourTIndex into **Cursor, Claude Desktop, Cline, OpenDevin, Codex, or Antigravity** via MCP.
+- **Empowers ALL Frameworks:** Plug FourTIndex into **Cursor, Claude Desktop, Codex (OpenAI), OpenDevin, Cline, or Antigravity** via MCP.
 - **100% Local Privacy:** Embeddings and Vector DB (ChromaDB) run entirely on your machine via **LM Studio** or **Ollama**. No source code is sent to third-party APIs for indexing.
 - **True Hybrid Search:** Combines BM25 Keyword Search with Semantic Vector Search using Reciprocal Rank Fusion (RRF).
 - **Omni-Language Tree-sitter:** Understands Python, TS/JS, React, Rust, Go, Java, Swift, C#, C++, Lua, and more. Automatically builds structural roadmaps of your project.
@@ -101,7 +101,7 @@ fourtindex index .
 
 Add FourTIndex to your favorite agentic framework to supercharge its context retrieval.
 
-### Cursor / Cline / OpenDevin / Codex
+### Cursor / Codex (OpenAI) / OpenDevin / Cline
 Add a new `stdio` MCP server in your tool's configuration:
 - **Command:** `/absolute/path/to/FourTIndex/.venv/Scripts/python.exe` (or `python` on Mac/Linux)
 - **Args:** `/absolute/path/to/FourTIndex/main.py mcp`
