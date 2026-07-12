@@ -9,10 +9,49 @@ _SYS_SIG = "VlVPTkcgTkdVWUVOIFRSVU5HIChDaHVubjI0MTUyOSkgLSBDcmVhdG9yICYgT3duZXIg
 _SYS_HASH = "2bc8484ed18e2fce6759139dc30e9b80be3b19121eed4873df70a9608a34c79e"
 
 
+def find_project_root(path: str = None) -> str:
+    """Finds the nearest ancestor containing typical project markers:
+    .fourtindex, .git, or .agents. Defaults to path or CWD.
+    """
+    if path is None:
+        path = os.getcwd()
+    path = os.path.abspath(path)
+    current = path
+    while True:
+        # Check for typical project markers
+        if (
+            os.path.isdir(os.path.join(current, ".fourtindex"))
+            or os.path.isdir(os.path.join(current, ".git"))
+            or os.path.isdir(os.path.join(current, ".agents"))
+        ):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+    return path
+
+
 class Config:
-    def __init__(self, config_path=None):
+    def __init__(self, config_path=None, project_root=None):
+        if project_root is None:
+            self.project_root = find_project_root()
+        else:
+            self.project_root = os.path.abspath(project_root)
+
         if config_path is None:
             config_path = os.environ.get("FOURTINDEX_CONFIG_PATH")
+
+        if config_path is None:
+            # Check local config options first
+            local_config_opts = [
+                os.path.join(self.project_root, ".fourtindex", "config.yaml"),
+                os.path.join(self.project_root, "config.yaml"),
+            ]
+            for opt in local_config_opts:
+                if os.path.exists(opt):
+                    config_path = opt
+                    break
 
         if config_path is None:
             # Check global user config directory (~/.fourtindex/config.yaml)
@@ -20,8 +59,8 @@ class Config:
             global_config = os.path.join(global_dir, "config.yaml")
 
             # Determine where the default template configuration is
-            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            default_config = os.path.join(project_root, "config.yaml")
+            pkg_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            default_config = os.path.join(pkg_root, "config.yaml")
             if not os.path.exists(default_config):
                 package_dir = os.path.dirname(os.path.abspath(__file__))
                 default_config = os.path.join(package_dir, "config.yaml")
@@ -32,10 +71,15 @@ class Config:
                     try:
                         os.makedirs(global_dir, exist_ok=True)
                         import shutil
+
                         shutil.copy2(default_config, global_config)
-                        sys.stderr.write(f"Initialized global configuration at: {global_config}\n")
+                        sys.stderr.write(
+                            f"Initialized global configuration at: {global_config}\n"
+                        )
                     except Exception as e:
-                        sys.stderr.write(f"Warning: Failed to copy default config to {global_config}: {e}\n")
+                        sys.stderr.write(
+                            f"Warning: Failed to copy default config to {global_config}: {e}\n"
+                        )
                 config_path = global_config
             else:
                 # If template config is not found, fallback to global_config if it exists
@@ -44,13 +88,11 @@ class Config:
 
         if config_path is None:
             # Fallback to local project root default
-            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            config_path = os.path.join(project_root, "config.yaml")
+            config_path = os.path.join(self.project_root, "config.yaml")
 
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.config_path = os.path.abspath(config_path)
         env_path = os.environ.get("FOURTINDEX_ENV_FILE") or os.path.join(
-            project_root, ".env"
+            self.project_root, ".env"
         )
         load_dotenv(env_path, override=False)
         self.data = {}
@@ -66,20 +108,25 @@ class Config:
     def _detect_vram_mb(self) -> int:
         try:
             output = subprocess.check_output(
-                ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+                [
+                    "nvidia-smi",
+                    "--query-gpu=memory.total",
+                    "--format=csv,noheader,nounits",
+                ],
                 stderr=subprocess.STDOUT,
                 text=True,
-                timeout=2
+                timeout=2,
             )
             # Sum up VRAM if multiple GPUs, or just take the first one
             return sum(int(x.strip()) for x in output.strip().split("\n"))
         except Exception:
             return 0
-            
+
     def _get_system_ram_gb(self) -> int:
         try:
             import psutil
-            return int(psutil.virtual_memory().total / (1024 ** 3))
+
+            return int(psutil.virtual_memory().total / (1024**3))
         except Exception:
             return 0
 
@@ -90,7 +137,9 @@ class Config:
                 with open(self.config_path, "r", encoding="utf-8") as f:
                     self.data = yaml.safe_load(f) or {}
             except Exception as e:
-                sys.stderr.write(f"Warning: Failed to load config from {self.config_path}: {e}\n")
+                sys.stderr.write(
+                    f"Warning: Failed to load config from {self.config_path}: {e}\n"
+                )
                 self.data = {}
         else:
             # If not found, try to locate in the project root of this code file
@@ -106,7 +155,9 @@ class Config:
                     with open(fallback_path, "r", encoding="utf-8") as f:
                         self.data = yaml.safe_load(f) or {}
                 except Exception as e:
-                    sys.stderr.write(f"Warning: Failed to load config from fallback {fallback_path}: {e}\n")
+                    sys.stderr.write(
+                        f"Warning: Failed to load config from fallback {fallback_path}: {e}\n"
+                    )
                     self.data = {}
             else:
                 self.data = {}
@@ -117,24 +168,59 @@ class Config:
 
     @property
     def exclude_dirs(self) -> list:
-        return self.data.get("project", {}).get("exclude_dirs", [
-            ".git", "node_modules", "dist", "build", "__pycache__", ".venv", "venv", ".fourtindex", "fourtindex.egg-info"
-        ])
+        return self.data.get("project", {}).get(
+            "exclude_dirs",
+            [
+                ".git",
+                "node_modules",
+                "dist",
+                "build",
+                "__pycache__",
+                ".venv",
+                "venv",
+                ".fourtindex",
+                "fourtindex.egg-info",
+            ],
+        )
 
     @property
     def supported_extensions(self) -> list:
-        return self.data.get("project", {}).get("supported_extensions", [
-            ".py", ".js", ".ts", ".jsx", ".tsx", ".json", ".md", ".txt",
-            ".rs", ".go", ".java", ".kt", ".swift", ".cs", ".cpp", ".h", ".gd", ".lua"
-        ])
+        return self.data.get("project", {}).get(
+            "supported_extensions",
+            [
+                ".py",
+                ".js",
+                ".ts",
+                ".jsx",
+                ".tsx",
+                ".json",
+                ".md",
+                ".txt",
+                ".rs",
+                ".go",
+                ".java",
+                ".kt",
+                ".swift",
+                ".cs",
+                ".cpp",
+                ".h",
+                ".gd",
+                ".lua",
+            ],
+        )
 
     @property
     def db_persist_directory(self) -> str:
-        path = self.data.get("database", {}).get("persist_directory", "./.fourtindex/db")
+        path = self.data.get("database", {}).get(
+            "persist_directory", "./.fourtindex/db"
+        )
         if not os.path.isabs(path):
-            config_dir = os.path.dirname(self.config_path)
-            return os.path.abspath(os.path.join(config_dir, path)).replace("\\", "/")
+            return os.path.abspath(os.path.join(self.project_root, path)).replace("\\", "/")
         return os.path.abspath(path).replace("\\", "/")
+
+    @property
+    def registry_db_path(self) -> str:
+        return os.path.abspath(os.path.join(self.project_root, ".fourtindex", "registry.db")).replace("\\", "/")
 
     @property
     def ollama_host(self) -> str:
@@ -162,35 +248,46 @@ class Config:
 
     @property
     def lmstudio_llm_model(self) -> str:
-        return os.environ.get("LMSTUDIO_LLM_MODEL") or self.data.get("lmstudio", {}).get(
-            "llm_model", "monas"
-        )
+        return os.environ.get("LMSTUDIO_LLM_MODEL") or self.data.get(
+            "lmstudio", {}
+        ).get("llm_model", "monas")
 
     @property
     def lmstudio_embedding_model(self) -> str:
-        return os.environ.get("LMSTUDIO_EMBEDDING_MODEL") or self.data.get("lmstudio", {}).get(
-            "embedding_model", "monas-embeddings-text-code"
-        )
+        return os.environ.get("LMSTUDIO_EMBEDDING_MODEL") or self.data.get(
+            "lmstudio", {}
+        ).get("embedding_model", "monas-embeddings-code")
 
     @property
     def lmstudio_api_token(self) -> str:
-        token = os.environ.get("LMSTUDIO_API_TOKEN") or self.data.get("lmstudio", {}).get(
-            "api_token"
-        )
+        token = os.environ.get("LMSTUDIO_API_TOKEN") or self.data.get(
+            "lmstudio", {}
+        ).get("api_token")
         if token is None or token == "":
             return "lmstudio"
         return token
 
     @property
-    def local_embedding_model(self) -> str:
-        return os.environ.get("LOCAL_EMBEDDING_MODEL") or self.data.get("local", {}).get(
-            "embedding_model", "monas-embeddings-text-code"
+    def lmstudio_large_model_threshold_bytes(self) -> int:
+        return max(
+            1,
+            self._int_value(
+                "lmstudio", "large_model_threshold_bytes", 2 * 1024**3
+            ),
         )
 
+    @property
+    def local_embedding_model(self) -> str:
+        return os.environ.get("LOCAL_EMBEDDING_MODEL") or self.data.get(
+            "local", {}
+        ).get("embedding_model", "monas-embeddings-code")
 
     @property
     def embedding_provider_chain(self) -> list[str]:
-        return [self.llm_provider]
+        primary = self.llm_provider.lower()
+        if primary == "lmstudio":
+            return ["lmstudio", "ollama"]
+        return [primary]
 
     @property
     def embedding_batch_size(self) -> int:
@@ -292,5 +389,3 @@ class Config:
     @property
     def rerank_candidates_limit(self) -> int:
         return max(1, self._int_value("rerank", "candidates_limit", 15))
-
-

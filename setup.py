@@ -2,7 +2,7 @@ from setuptools import setup, find_packages, find_namespace_packages
 
 setup(
     name="fourtindex",
-    version="0.1.7",
+    version="0.1.16",
     description="Local Codebase Indexer & MCP Assistant",
     author="trung",
     py_modules=["main"],
@@ -19,7 +19,11 @@ setup(
         "rich>=13.7.1",
         "pathspec>=0.12.1",
         "python-dotenv>=1.0.1",
-        "watchdog",
+        "tree-sitter==0.21.3",
+        "tree-sitter-languages",
+        "sentence-transformers",
+        "watchdog>=4.0.0",
+        "psutil>=5.9.0",
     ],
     extras_require={"dev": ["pytest>=8.0", "pytest-cov>=5.0"]},
     entry_points={

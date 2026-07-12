@@ -466,8 +466,16 @@ class IndexingService:
 
 
 def load_project_context(config: Config, project_name: str):
-    database = Database(config)
-    manifest = IndexManifest(os.path.dirname(config.db_persist_directory))
+    temp_db = Database(config)
+    project_path = temp_db.get_project_path(project_name)
+    if not project_path:
+        raise ValueError(f"Project '{project_name}' has not been registered in project_registry.json")
+
+    project_config = Config(
+        config_path=config.config_path, project_root=project_path
+    )
+    database = Database(project_config)
+    manifest = IndexManifest(os.path.dirname(project_config.db_persist_directory))
     project = manifest.get_project(project_name)
     if not project:
         raise ValueError(f"Project '{project_name}' has not been indexed with manifest v2")
@@ -475,7 +483,7 @@ def load_project_context(config: Config, project_name: str):
     if not store:
         raise ValueError(f"Project '{project_name}' has no complete index")
     profile = EmbeddingProfile.from_dict(store["profile"])
-    manager = EmbeddingManager(config)
+    manager = EmbeddingManager(project_config)
     manager.load_profile(profile)
     return database, manager, project, store
 

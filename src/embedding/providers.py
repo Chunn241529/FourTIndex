@@ -13,9 +13,10 @@ class OllamaProvider(EmbeddingProvider):
     def __init__(self, model: str, dimension: int, host: str, config=None):
         super().__init__(model, dimension)
         self.client = ollama.Client(host=host)
-        
+
         # Determine max_batch_items dynamically based on VRAM
         from src.config import Config
+
         cfg = config or Config()
         vram = getattr(cfg, "_detect_vram_mb", lambda: 0)()
         if vram >= 12000:
@@ -49,10 +50,12 @@ class LMStudioProvider(EmbeddingProvider):
     def __init__(self, model: str, dimension: int, config=None):
         super().__init__(model, dimension)
         from src.config import Config
+
         self.config = config or Config()
         from src.lmstudio_client import LMStudioClient
+
         self.lm_client = LMStudioClient(self.config)
-        
+
         # Determine max_batch_items dynamically based on VRAM
         vram = getattr(self.config, "_detect_vram_mb", lambda: 0)()
         if vram >= 12000:
@@ -82,7 +85,7 @@ class LMStudioProvider(EmbeddingProvider):
                 raise ProviderUnavailableError(
                     f"lmstudio model '{self.model}' is unavailable"
                 ) from exc
-                
+
             self.request_count -= 1
             fallback_embeddings = []
             for text in texts:
@@ -118,9 +121,10 @@ class LocalProvider(EmbeddingProvider):
     def __init__(self, model: str, dimension: int, config=None):
         super().__init__(model, dimension)
         from src.config import Config
+
         self.config = config or Config()
         self._st_model = None
-        
+
         # Determine max_batch_items dynamically based on VRAM
         vram = getattr(self.config, "_detect_vram_mb", lambda: 0)()
         if vram >= 12000:
@@ -137,11 +141,22 @@ class LocalProvider(EmbeddingProvider):
             try:
                 import os
                 from sentence_transformers import SentenceTransformer
+
                 model_path = self.model
-                if model_path == "monas-embeddings-text-code":
+                if model_path == "monas-embeddings-code":
                     if not os.path.isdir(model_path):
-                        model_path = "trungvn2401s/monas-embeddings-text-code"
-                self._st_model = SentenceTransformer(model_path)
+                        model_path = "trungvn2401s/monas-embeddings-code"
+                try:
+                    self._st_model = SentenceTransformer(
+                        model_path, local_files_only=True
+                    )
+                except Exception:
+                    try:
+                        self._st_model = SentenceTransformer(
+                            model_path, local_files_only=False
+                        )
+                    except TypeError:
+                        self._st_model = SentenceTransformer(model_path)
             except ImportError as exc:
                 raise ProviderUnavailableError(
                     "Please install 'sentence-transformers' to use local embedding models."
@@ -176,11 +191,14 @@ def create_provider(name: str, config) -> EmbeddingProvider:
     if normalized == "lmstudio":
         return LMStudioProvider(config.lmstudio_embedding_model, 0, config)
     elif normalized == "ollama":
-        return OllamaProvider(config.ollama_embedding_model, 0, config.ollama_host, config)
+        return OllamaProvider(
+            config.ollama_embedding_model, 0, config.ollama_host, config
+        )
     elif normalized == "local":
         return LocalProvider(config.local_embedding_model, 0, config)
     elif normalized == "fake":
         from tests.test_indexing_service import FakeProvider
+
         return FakeProvider()
     else:
         raise ProviderError(

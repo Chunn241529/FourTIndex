@@ -131,8 +131,7 @@ def run_diagnostics(config: Config) -> bool:
 
     # 4. Check SQLite Registry
     console.print("\n[bold]💾 Checking database files:[/bold]")
-    registry_dir = os.path.expanduser("~/.fourtindex")
-    registry_path = os.path.join(registry_dir, "registry.db")
+    registry_path = config.registry_db_path
     if os.path.exists(registry_path):
         try:
             conn = sqlite3.connect(registry_path)

@@ -111,9 +111,32 @@ def test_mcp_index_and_search_codebase(tmp_path):
     # Modify file to make it stale
     py_file.write_text("def hello():\n    print('Hello World Updated')\n", encoding="utf-8")
     mcp_server._query_cache.clear()
+    mcp_server._last_auto_index_time["FourTIndex"] = 0
     search_res_json_stale = mcp_server.search_codebase("hello print", "FourTIndex", output_json=True)
     search_data_stale = json.loads(search_res_json_stale)
     assert search_data_stale[0]["stale"] is True
+
+
+def test_search_codebase_does_not_auto_reindex(tmp_path, monkeypatch):
+    from src import mcp_helpers
+
+    project_dir = tmp_path / "search-project"
+    project_dir.mkdir()
+    (project_dir / "app.py").write_text("def hello():\n    return True\n", encoding="utf-8")
+    mcp_server.db.save_project_path("FourTIndex", str(project_dir))
+    mcp_server._query_cache.clear()
+
+    def fail_if_called(_project_name):
+        raise AssertionError("search_codebase must not trigger synchronous indexing")
+
+    monkeypatch.setattr(mcp_helpers, "_auto_reindex_if_needed", fail_if_called)
+
+    result = json.loads(
+        mcp_server.search_codebase("hello", "FourTIndex", output_json=True)
+    )
+
+    assert result[0]["file_path"] == "app.py"
+    assert result[0]["score_type"] == "exact_match"
 
 
 def test_mcp_outline_and_details(tmp_path):

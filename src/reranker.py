@@ -1,6 +1,11 @@
-from typing import Any, Dict, List, Optional
-import re
+import json
+import logging
+import math
+from typing import Any, Dict, List
+
 from src.config import Config
+
+logger = logging.getLogger("fourTindex.reranker")
 
 class LocalReranker:
     def __init__(self, config: Config):
@@ -45,7 +50,13 @@ class LocalReranker:
             if model_path == "monas-reranker":
                 if not os.path.isdir(model_path):
                     model_path = "trungvn2401s/monas-reranker"
-            self.model = CrossEncoder(model_path)
+            try:
+                self.model = CrossEncoder(model_path, local_files_only=True)
+            except Exception:
+                try:
+                    self.model = CrossEncoder(model_path, local_files_only=False)
+                except TypeError:
+                    self.model = CrossEncoder(model_path)
 
     def rerank(self, query: str, chunks: List[Dict[str, Any]], top_k: int = 5) -> List[Dict[str, Any]]:
         """Reranks retrieved codebase chunks based on relevance to query using CrossEncoder or LM Studio API."""
@@ -77,55 +88,61 @@ class LocalReranker:
             return chunks[:top_k]
 
     def _rerank_via_lmstudio(self, query: str, chunks: List[Dict[str, Any]], top_k: int = 5) -> List[Dict[str, Any]]:
-        """Queries LM Studio chat completions to rank the chunks using the active model."""
-        scored_chunks = []
-        
+        """Reranks all candidates in one validated LM Studio request."""
         system_prompt = (
-            "You are an expert code search ranking assistant.\n"
-            "Your task is to evaluate the relevance of a document to a query and output a single float number between 0.0 and 1.0.\n"
-            "Output ONLY the numeric float (e.g., 0.85). Do not include any thoughts, conversational filler, or explanation."
+            "Rank every document for relevance to the query. Return only a JSON array "
+            "with one object per document: {\"index\": integer, \"score\": number}. "
+            "Scores must be between 0 and 1. Include every index exactly once."
         )
-        
-        for chunk in chunks:
-            content = chunk.get("content", "")
-            
-            try:
-                res = self.lm_client.chat_completions(
-                    model=self.model_name,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": "Query: split array into batches\nDocument: def _pack_batches(items, max_items): ..."},
-                        {"role": "assistant", "content": "1.0"},
-                        {"role": "user", "content": f"Query: {query}\nDocument: {content}"}
-                    ],
-                    temperature=0.0,
-                    max_tokens=10
-                )
-                
-                output_text = res.get("choices", [{}])[0].get("message", {}).get("content", "0.0").strip()
-                file_info = chunk.get("metadata", {}).get("file_path") or chunk.get("metadata", {}).get("file", "unknown")
-                import sys
-                sys.stderr.write(f"DEBUG - Model output for chunk '{file_info}': '{output_text}'\n")
-                
-                # Parse numeric score from output
-                match = re.search(r"[-+]?\d*\.\d+|\d+", output_text)
-                if match:
-                    try:
-                        score = float(match.group(0))
-                        score = max(0.0, min(1.0, score))
-                    except ValueError:
-                        score = 0.0
-                else:
-                    score = 0.0
-                            
-                chunk["rerank_score"] = score
-                scored_chunks.append(chunk)
-            except Exception as e:
-                import sys
-                sys.stderr.write(f"LM Studio Reranker error for chunk: {e}\n")
-                chunk["rerank_score"] = 0.0
-                scored_chunks.append(chunk)
-                
-        sorted_chunks = sorted(scored_chunks, key=lambda x: x.get("rerank_score", 0.0), reverse=True)
-        return sorted_chunks[:top_k]
+        request_body = {
+            "query": query,
+            "documents": [
+                {"index": index, "content": chunk.get("content", "")}
+                for index, chunk in enumerate(chunks)
+            ],
+        }
+        try:
+            response = self.lm_client._chat_completions(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": json.dumps(request_body)},
+                ],
+                stream=False,
+                temperature=0.0,
+                max_tokens=max(64, len(chunks) * 24),
+                timeout=10,
+            )
+            if "error" in response:
+                raise RuntimeError(str(response["error"]))
+            output = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+            logger.debug("LM Studio reranker output: %.500s", output)
+            parsed = json.loads(output)
+            if not isinstance(parsed, list) or len(parsed) != len(chunks):
+                raise ValueError("reranker output must contain one score per candidate")
 
+            scores = {}
+            for item in parsed:
+                if not isinstance(item, dict) or isinstance(item.get("index"), bool):
+                    raise ValueError("reranker item must contain an integer index")
+                index = item.get("index")
+                score = item.get("score")
+                if not isinstance(index, int) or index < 0 or index >= len(chunks):
+                    raise ValueError("reranker index is out of range")
+                if index in scores:
+                    raise ValueError("reranker index is duplicated")
+                if isinstance(score, bool) or not isinstance(score, (int, float)):
+                    raise ValueError("reranker score must be numeric")
+                score = float(score)
+                if not math.isfinite(score) or not 0.0 <= score <= 1.0:
+                    raise ValueError("reranker score is outside [0, 1]")
+                scores[index] = score
+
+            for index, chunk in enumerate(chunks):
+                chunk["rerank_score"] = scores[index]
+            return sorted(
+                chunks, key=lambda item: item["rerank_score"], reverse=True
+            )[:top_k]
+        except Exception as exc:
+            logger.warning("LM Studio reranking failed; using retrieval order: %s", exc)
+            return chunks[:top_k]

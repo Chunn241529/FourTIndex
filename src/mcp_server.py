@@ -10,6 +10,7 @@ from src.database import Database
 from src.indexer import Indexer
 from src.indexing_service import IndexOptions, IndexingService, load_project_context
 from src.project_identity import ProjectResolutionError, ProjectResolver
+from src.skill_indexing_service import index_discovered_skills, index_skill_file
 
 # Configure logging to go to stderr so it doesn't corrupt stdout stdio transport
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
@@ -169,7 +170,7 @@ def read_code_lines(file_path: str, start_line: int, end_line: int, project_name
         
         # 2. If not resolved, search ALL registered project paths in the registry
         if not abs_path:
-            registry_path = os.path.join(os.path.dirname(db.config.db_persist_directory), "project_registry.json")
+            registry_path = os.path.expanduser("~/.fourtindex/project_registry.json")
             if os.path.exists(registry_path):
                 try:
                     with open(registry_path, "r", encoding="utf-8") as f:
@@ -469,7 +470,10 @@ def index_project(
                 project_name = os.path.basename(detect_path) or config.project_name
     logger.info(f"index_project called for path: '{project_path}', output_json: {output_json}")
     try:
-        service = IndexingService(config)
+        project_config = Config(
+            config_path=config.config_path, project_root=detect_path
+        )
+        service = IndexingService(project_config)
         def progress_cb(phase, current, total):
             if current == total or current % max(1, total // 5) == 0:
                 logger.info(f"Indexing progress '{project_name}': {phase} {current}/{total}")
@@ -485,18 +489,13 @@ def index_project(
         )
         msg = result.summary()
         logger.info(msg)
+        if result.completed:
+            _query_cache.clear()
         
-        indexed_skills = []
-        skills_root = os.path.join(detect_path, ".agents", "skills")
-        if os.path.isdir(skills_root):
-            for root, _, files in os.walk(skills_root):
-                if "SKILL.md" not in files:
-                    continue
-                skill_result = json.loads(
-                    index_skill(os.path.join(root, "SKILL.md"), project_name, True)
-                )
-                if skill_result.get("success"):
-                    indexed_skills.append(skill_result["skill_name"])
+        indexed_skills = [
+            item["skill_name"]
+            for item in index_discovered_skills(project_config, project_name)
+        ]
             
         if output_json:
             payload = {
@@ -548,7 +547,7 @@ def index_skill(skill_path: str, project_name: str = None, output_json: bool = F
             
             # 2. Try to resolve searching all registered projects in the registry
             if not resolved_path:
-                registry_path = os.path.join(os.path.dirname(db.config.db_persist_directory), "project_registry.json")
+                registry_path = os.path.expanduser("~/.fourtindex/project_registry.json")
                 if os.path.exists(registry_path):
                     try:
                         with open(registry_path, "r", encoding="utf-8") as f:
@@ -576,56 +575,17 @@ def index_skill(skill_path: str, project_name: str = None, output_json: bool = F
                 return json.dumps({"error": f"Skill file not found at {skill_path}"})
             return f"Error: Skill file not found at {skill_path} (Attempted resolution path: {file_path})"
             
-        rel_path = os.path.relpath(file_path, os.path.dirname(os.path.dirname(file_path))).replace("\\", "/")
-        
-        metadata, chunks = indexer.parse_skill_file(file_path, rel_path)
-        if not chunks:
-            if output_json:
-                return json.dumps({"error": f"Failed to parse skill or no content chunks found in {file_path}."})
-            return f"Error: Failed to parse skill or no content chunks found in {file_path}."
-            
-        skill_name = metadata.get("name", os.path.basename(os.path.dirname(file_path)))
-        
-        # Clean up old entries
-        db.delete_skill_entries(skill_name, project_name)
-        
-        ids = []
-        documents = []
-        metadatas = []
-        
-        chunk_texts = [c["content"] for c in chunks]
-        embeddings = embedder.get_embeddings_batch(chunk_texts)
-        
-        import datetime
-        indexed_at_str = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
-        source_hash = indexer.compute_file_hash(file_path)
-        
-        for idx, c in enumerate(chunks):
-            chunk_id = f"skill_{skill_name}#chunk_{idx}"
-            ids.append(chunk_id)
-            documents.append(c["content"])
-            
-            meta = {
-                "project_name": project_name,
-                "skill_name": skill_name,
-                "file_path": rel_path,
-                "heading": c["heading"],
-                "start_line": c["start_line"],
-                "end_line": c["end_line"],
-                "source_hash": source_hash,
-                "indexed_at": indexed_at_str
-            }
-            metadatas.append(meta)
-            
-        db.upsert_skill_chunks(ids, embeddings, documents, metadatas)
-        
+        project_root = db.get_project_path(project_name) or os.path.dirname(
+            os.path.dirname(file_path)
+        )
+        result = index_skill_file(
+            Config(config_path=config.config_path, project_root=project_root),
+            file_path,
+            project_name,
+        )
         if output_json:
-            return json.dumps({
-                "success": True,
-                "skill_name": skill_name,
-                "sections": len(ids)
-            }, separators=(",", ":"))
-        return f"Successfully indexed skill '{skill_name}' with {len(ids)} sections."
+            return json.dumps({"success": True, **result}, separators=(",", ":"))
+        return f"Successfully indexed skill '{result['skill_name']}' with {result['sections']} sections."
     except Exception as e:
         log_error(f"index_skill: {str(e)}")
         logger.error(f"Error in index_skill: {e}")
@@ -1203,7 +1163,7 @@ def check_syntax(file_path: str, project_name: str = "FourTIndex", max_files: in
                 abs_path = test_path
         
         if not abs_path:
-            registry_path = os.path.join(os.path.dirname(db.config.db_persist_directory), "project_registry.json")
+            registry_path = os.path.expanduser("~/.fourtindex/project_registry.json")
             if os.path.exists(registry_path):
                 try:
                     with open(registry_path, "r", encoding="utf-8") as f:

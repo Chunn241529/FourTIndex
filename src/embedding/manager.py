@@ -17,10 +17,24 @@ class EmbeddingManager:
         self.provider: EmbeddingProvider | None = None
 
     def select_for_new_index(self, requested: str = "auto") -> EmbeddingProvider:
-        provider = create_provider(requested, self.config)
-        provider.health_check()
-        self.provider = provider
-        return provider
+        if requested != "auto":
+            provider = create_provider(requested, self.config)
+            provider.health_check()
+            self.provider = provider
+            return provider
+
+        errors = []
+        for provider_name in self.config.embedding_provider_chain:
+            try:
+                provider = create_provider(provider_name, self.config)
+                provider.health_check()
+                self.provider = provider
+                return provider
+            except ProviderError as exc:
+                errors.append(f"{provider_name}: {exc}")
+        raise ProviderUnavailableError(
+            "No embedding provider is available (" + "; ".join(errors) + ")"
+        )
 
     def load_profile(self, profile: EmbeddingProfile) -> EmbeddingProvider:
         provider = create_provider(profile.provider, self.config)

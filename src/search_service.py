@@ -14,7 +14,7 @@ def orchestrate_search(
     output_json: bool = False,
 ) -> str:
     from src import mcp_server
-    from src.mcp_helpers import _auto_reindex_if_needed, reciprocal_rank_fusion, _post_process_tool_output, log_error
+    from src.mcp_helpers import reciprocal_rank_fusion, _post_process_tool_output, log_error
 
     db = mcp_server.db
     config = mcp_server.config
@@ -31,8 +31,10 @@ def orchestrate_search(
     try:
         from src.keyword_search import is_valid_keyword, search_exact_keyword, format_keyword_results
 
-        did_reindex = _auto_reindex_if_needed(project_name)
-        if did_reindex or len(mcp_server._query_cache) > 1000:
+        # Search must remain a bounded read operation. Reindexing can involve a
+        # full project scan and remote embedding calls, so callers trigger it
+        # explicitly with index_project instead of blocking this request.
+        if len(mcp_server._query_cache) > 1000:
             mcp_server._query_cache.clear()
 
         # Check cache

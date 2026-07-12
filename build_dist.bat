@@ -3,17 +3,23 @@ echo ==========================================
 echo Building FourTIndex Distribution Package
 echo ==========================================
 
-:: Check if python is installed
-where python >nul 2>nul
-if %errorlevel% neq 0 (
-    echo Error: Python is not installed or not in PATH.
-    pause
-    exit /b 1
+:: Detect python executable
+set "PYTHON_EXE=python"
+if exist ".venv\Scripts\python.exe" (
+    set "PYTHON_EXE=.venv\Scripts\python.exe"
+    echo Using virtual environment Python: .venv\Scripts\python.exe
+) else (
+    where python >nul 2>nul
+    if %errorlevel% neq 0 (
+        echo Error: Python is not installed or not in PATH.
+        pause
+        exit /b 1
+    )
 )
 
 :: Install/Upgrade the 'build' package
 echo Upgrading build package...
-python -m pip install --upgrade build setuptools wheel
+%PYTHON_EXE% -m pip install --upgrade build setuptools wheel
 
 :: Clean old builds
 if exist dist (
@@ -31,16 +37,16 @@ if exist fourtindex.egg-info (
 
 :: Bump version
 echo Auto-bumping version in setup.py...
-python bump_version.py
+%PYTHON_EXE% bump_version.py
 
 :: Run build
-echo Running python -m build...
-python -m build
+echo Running %PYTHON_EXE% -m build...
+%PYTHON_EXE% -m build
 
-:: Install globally
+:: Install updated version
 echo.
-echo Installing updated version globally...
-python -m pip install -U .
+echo Installing updated version...
+%PYTHON_EXE% -m pip install -U .
 
 echo.
 echo ==========================================

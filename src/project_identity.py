@@ -43,18 +43,31 @@ class ProjectIdentity:
 
 
 class ProjectResolver:
-    def __init__(self, registry_path: str, manifest_path: str):
+    def __init__(self, registry_path: str, manifest_path: str = None):
         self.registry_path = Path(registry_path)
-        self.manifest_path = Path(manifest_path)
+        self.manifest_path = Path(manifest_path) if manifest_path else None
 
     def list_identities(self) -> list[ProjectIdentity]:
         registry = self._load_json(self.registry_path, {})
-        manifest = self._load_json(self.manifest_path, {"projects": {}})
-        manifest_projects = manifest.get("projects", {})
         identities = []
         for project_name, project_path in registry.items():
             canonical_root = canonicalize_path(project_path)
+            
+            # Load project manifest: check local first, fallback to global
+            manifest = None
+            local_manifest_path = os.path.join(canonical_root, ".fourtindex", "index_manifest.json")
+            if os.path.exists(local_manifest_path):
+                manifest = self._load_json(Path(local_manifest_path), None)
+            
+            if manifest is None and self.manifest_path and self.manifest_path.exists():
+                manifest = self._load_json(self.manifest_path, {"projects": {}})
+                
+            if manifest is None:
+                manifest = {"projects": {}}
+                
+            manifest_projects = manifest.get("projects", {})
             project = manifest_projects.get(project_name) or {}
+            
             manifest_root = project.get("path")
             if manifest_root and canonicalize_path(manifest_root) != canonical_root:
                 status = "path_mismatch"

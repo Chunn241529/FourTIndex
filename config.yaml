@@ -46,8 +46,9 @@ ollama:
 lmstudio:
   host: "http://127.0.0.1:2401"
   llm_model: "monas"
-  embedding_model: "monas-embeddings-text-code"
+  embedding_model: "monas-embeddings-code"
   api_token: ""
+  large_model_threshold_bytes: 2147483648
 
 embedding:
   batch_size: 0
@@ -70,4 +71,3 @@ rerank:
   enabled: true
   model: "monas-reranker"
   candidates_limit: 15
-

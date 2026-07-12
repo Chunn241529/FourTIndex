@@ -50,7 +50,7 @@ def check_skill_freshness(project_name: str, skill_name: str, metadatas: list[di
             resolved_path = test_path
             
     if not resolved_path:
-        registry_path = os.path.join(os.path.dirname(db.config.db_persist_directory), "project_registry.json")
+        registry_path = os.path.expanduser("~/.fourtindex/project_registry.json")
         if os.path.exists(registry_path):
             try:
                 with open(registry_path, "r", encoding="utf-8") as f:

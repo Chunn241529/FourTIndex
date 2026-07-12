@@ -213,12 +213,16 @@ class DashboardHTTPHandler(http.server.BaseHTTPRequestHandler):
             try:
                 from src.memory_cleaner import clean_all_memory
                 config = Config()
-                report = clean_all_memory(config, unload_models=True)
-                
+                threading.Thread(
+                    target=clean_all_memory,
+                    args=(config, True),
+                    daemon=True,
+                    name="fourtindex-memory-cleanup",
+                ).start()
                 self.send_json({
                     "success": True,
-                    "message": "Successfully executed memory cleanup for local providers.",
-                    "report": report
+                    "scheduled": True,
+                    "message": "Memory cleanup started for local providers."
                 })
             except Exception as e:
                 self.send_json({"success": False, "message": str(e)}, status=500)
@@ -329,28 +333,32 @@ def find_free_port(start_port: int) -> int:
                 port += 1
     return start_port
 
-def start_dashboard_server(port: int = 4040, open_browser: bool = True) -> None:
+def create_dashboard_server(port: int = 4040):
     config = Config()
     free_port = find_free_port(port)
-    
+    server_address = ("127.0.0.1", free_port)
+
+    class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+        daemon_threads = True
+
+    class CustomHandler(DashboardHTTPHandler):
+        def __init__(self, *args: Any, **kwargs: Any):
+            self.config = config
+            super().__init__(*args, **kwargs)
+
+    return ThreadedHTTPServer(server_address, CustomHandler)
+
+
+def start_dashboard_server(port: int = 4040, open_browser: bool = True) -> None:
+    httpd = create_dashboard_server(port)
+    free_port = httpd.server_address[1]
     if open_browser:
         def open_web() -> None:
             import time
             time.sleep(0.8)
             webbrowser.open(f"http://localhost:{free_port}")
         threading.Thread(target=open_web, daemon=True).start()
-        
-    server_address = ("127.0.0.1", free_port)
-    
-    class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
-        daemon_threads = True
-        
-    class CustomHandler(DashboardHTTPHandler):
-        def __init__(self, *args: Any, **kwargs: Any):
-            self.config = config
-            super().__init__(*args, **kwargs)
-            
-    httpd = ThreadedHTTPServer(server_address, CustomHandler)
+
     print(f"============================================================")
     print(f"🚀 FourTIndex Token Dashboard running at http://localhost:{free_port}")
     print(f"Press Ctrl+C to stop the dashboard server.")

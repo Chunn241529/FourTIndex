@@ -548,7 +548,9 @@ def evaluate_latest_session():
 
         # Persist report locally in project root if .fourtindex folder exists
         try:
-            local_dir = os.path.join(os.getcwd(), ".fourtindex")
+            from src.config import find_project_root
+            proj_root = find_project_root(os.getcwd())
+            local_dir = os.path.join(proj_root, ".fourtindex")
             if os.path.isdir(local_dir):
                 with open(os.path.join(local_dir, "token_report.txt"), "w", encoding="utf-8") as f:
                     f.write(report)

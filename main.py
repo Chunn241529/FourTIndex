@@ -23,7 +23,7 @@ from rich.progress import Progress
 from src.config import Config
 from src.embedder import Embedder
 from src.database import Database
-from src.indexer import Indexer
+from src.skill_indexing_service import index_discovered_skills, index_skill_file
 from src.llm import LLMClient
 from src.embedding import EmbeddingManager
 from src.indexing_service import IndexOptions, IndexingService, load_project_context
@@ -53,12 +53,12 @@ def inject_agent_skill():
 
 def cmd_index(args):
     inject_agent_skill()
-    config = Config()
+    target_path = os.path.abspath(args.path)
+    config = Config(project_root=target_path)
     service = IndexingService(config)
     
     project_name = args.project_name
     if not project_name:
-        target_path = os.path.abspath(args.path)
         target_config_path = os.path.join(target_path, "config.yaml")
         if os.path.exists(target_config_path):
             try:
@@ -139,6 +139,13 @@ def cmd_index(args):
         console.print(result.summary(), style=style)
         if result.failed:
             console.print("Failed files: " + ", ".join(result.failed), style="bold red")
+        if result.completed:
+            skill_results = index_discovered_skills(config, project_name)
+            if skill_results:
+                console.print(
+                    f"Indexed {len(skill_results)} discovered skill(s).",
+                    style="bold green",
+                )
         
         # Always run clean_mem after index finishes
         console.print("\n[bold blue]Automatically cleaning up RAM & VRAM...[/bold blue]")
@@ -153,7 +160,7 @@ def cmd_index(args):
         raise SystemExit(1)
 
 def cmd_search(args):
-    config = Config()
+    config = Config(project_root=os.getcwd())
     project_name = args.project_name or config.project_name
     
     ext_str = f" with extension '{args.file_ext}'" if args.file_ext else ""
@@ -211,7 +218,7 @@ def cmd_search(args):
         console.print(f"[bold red]Search Error:[/bold red] {e}")
 
 def cmd_query(args):
-    config = Config()
+    config = Config(project_root=os.getcwd())
     llm = LLMClient(config)
     project_name = args.project_name or config.project_name
     
@@ -264,11 +271,6 @@ def cmd_query(args):
         console.print(f"[bold red]Query Error:[/bold red] {e}")
 
 def cmd_index_skill(args):
-    config = Config()
-    embedder = Embedder(config)
-    db = Database(config)
-    indexer = Indexer(config)
-    
     path = os.path.abspath(args.path)
     if os.path.isdir(path):
         file_path = os.path.join(path, "SKILL.md")
@@ -279,43 +281,14 @@ def cmd_index_skill(args):
         console.print(f"[bold red]Error:[/bold red] Skill file not found at '{file_path}'")
         sys.exit(1)
         
-    rel_path = os.path.relpath(file_path, os.path.dirname(os.path.dirname(file_path))).replace("\\", "/")
-    console.print(f"[bold blue]Parsing skill file:[/bold blue] {rel_path}")
-    
-    metadata, chunks = indexer.parse_skill_file(file_path, rel_path)
-    if not chunks:
-        console.print(f"[bold red]Error:[/bold red] Failed to parse skill file or no chunks found.")
-        sys.exit(1)
-        
-    skill_name = metadata.get("name", os.path.basename(os.path.dirname(file_path)))
-    db.delete_skill_entries(skill_name, config.project_name)
-    
-    ids = []
-    documents = []
-    metadatas = []
-    
-    chunk_texts = [c["content"] for c in chunks]
-    with Progress() as progress:
-        task = progress.add_task("[cyan]Embedding skill sections...", total=len(chunks))
-        embeddings = embedder.get_embeddings_batch(chunk_texts)
-        progress.advance(task, len(chunks))
-        
-    for idx, c in enumerate(chunks):
-        chunk_id = f"skill_{skill_name}#chunk_{idx}"
-        ids.append(chunk_id)
-        documents.append(c["content"])
-        meta = {
-            "project_name": config.project_name,
-            "skill_name": skill_name,
-            "file_path": rel_path,
-            "heading": c["heading"],
-            "start_line": c["start_line"],
-            "end_line": c["end_line"]
-        }
-        metadatas.append(meta)
-        
-    db.upsert_skill_chunks(ids, embeddings, documents, metadatas)
-    console.print(f"[bold green]Success![/bold green] Indexed skill '[cyan]{skill_name}[/cyan]' with {len(ids)} sections.")
+    project_root = os.getcwd()
+    config = Config(project_root=project_root)
+    console.print(f"[bold blue]Parsing skill file:[/bold blue] {file_path}")
+    result = index_skill_file(config, file_path, config.project_name)
+    console.print(
+        f"[bold green]Success![/bold green] Indexed skill "
+        f"'[cyan]{result['skill_name']}[/cyan]' with {result['sections']} sections."
+    )
     
     # Always run clean_mem after index-skill finishes
     console.print("\n[bold blue]Automatically cleaning up RAM & VRAM...[/bold blue]")
@@ -324,7 +297,7 @@ def cmd_index_skill(args):
     console.print(cleanup_report)
 
 def cmd_search_skills(args):
-    config = Config()
+    config = Config(project_root=os.getcwd())
     db = Database(config)
     embedder = Embedder(config)
     
@@ -390,14 +363,14 @@ def cmd_setup_lmstudio(args):
     run_lmstudio_setup()
 
 def cmd_clean_mem(args):
-    config = Config()
+    config = Config(project_root=os.getcwd())
     from src.memory_cleaner import clean_all_memory
     print(clean_all_memory(config, unload_models=True))
 
 
 
 def cmd_providers(args):
-    config = Config()
+    config = Config(project_root=os.getcwd())
     manager = EmbeddingManager(config)
     table = Table(title="Embedding Providers")
     table.add_column("Provider", style="cyan")
@@ -417,7 +390,7 @@ def cmd_providers(args):
 
 def cmd_mcp(args):
     inject_agent_skill()
-    config = Config()
+    config = Config(project_root=os.getcwd())
     
     watcher_observer = None
     try:
@@ -445,15 +418,16 @@ def cmd_dashboard(args):
         sys.exit(0)
 
 def cmd_doctor(args):
-    config = Config()
+    config = Config(project_root=os.getcwd())
     from src.doctor import run_diagnostics
     run_diagnostics(config)
 
 def cmd_watch(args):
-    config = Config()
+    target_path = os.path.abspath(args.path)
+    config = Config(project_root=target_path)
     from src.watcher import start_watcher
     try:
-        start_watcher(args.path, config)
+        start_watcher(target_path, config)
     except KeyboardInterrupt:
         print("\nWatcher stopped.")
         sys.exit(0)

@@ -1,5 +1,6 @@
 import os
 import json
+import tempfile
 import chromadb
 from src.config import Config
 
@@ -31,7 +32,7 @@ class Database:
         )
 
         # Initialize SQLite Registry DB for roadmaps
-        self.registry_db_path = os.path.expanduser("~/.fourtindex/registry.db")
+        self.registry_db_path = self.config.registry_db_path
         self._init_registry_db()
 
     @staticmethod
@@ -445,19 +446,32 @@ class Database:
     def save_project_path(self, project_name: str, project_path: str):
         """Saves the mapping of project_name to its absolute project_path."""
         registry_path = os.path.expanduser("~/.fourtindex/project_registry.json")
+        registry_directory = os.path.dirname(registry_path)
+        os.makedirs(registry_directory, exist_ok=True)
         data = {}
         if os.path.exists(registry_path):
             try:
                 with open(registry_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-            except Exception:
-                pass
+                if not isinstance(data, dict):
+                    raise ValueError("Project registry must contain a JSON object")
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                raise RuntimeError(f"Unable to read project registry: {exc}") from exc
         data[project_name] = os.path.abspath(project_path).replace("\\", "/")
+        descriptor, temporary_path = tempfile.mkstemp(
+            prefix="project_registry_", suffix=".json", dir=registry_directory
+        )
         try:
-            with open(registry_path, "w", encoding="utf-8") as f:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
-        except Exception:
-            pass
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temporary_path, registry_path)
+        except OSError as exc:
+            raise RuntimeError(f"Unable to write project registry: {exc}") from exc
+        finally:
+            if os.path.exists(temporary_path):
+                os.unlink(temporary_path)
 
     def get_project_path(self, project_name: str) -> str | None:
         """Retrieves the absolute path for a given project_name."""
@@ -466,9 +480,11 @@ class Database:
             try:
                 with open(registry_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
+                    if not isinstance(data, dict):
+                        raise ValueError("Project registry must contain a JSON object")
                     return data.get(project_name)
-            except Exception:
-                pass
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                raise RuntimeError(f"Unable to read project registry: {exc}") from exc
         return None
 
     def delete_skill_entries(self, skill_name: str, project_name: str):
