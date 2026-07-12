@@ -211,15 +211,13 @@ class DashboardHTTPHandler(http.server.BaseHTTPRequestHandler):
 
         if path == "/api/clean-mem":
             try:
-                from src.setup_ollama import unload_models
-                unload_models()
-                
-                from src.token_meter import evaluate_latest_session
-                report = evaluate_latest_session()
+                from src.memory_cleaner import clean_all_memory
+                config = Config()
+                report = clean_all_memory(config, unload_models=True)
                 
                 self.send_json({
                     "success": True,
-                    "message": "Successfully unloaded all models from Ollama VRAM/RAM.",
+                    "message": "Successfully executed memory cleanup for local providers.",
                     "report": report
                 })
             except Exception as e:
@@ -283,11 +281,17 @@ class DashboardHTTPHandler(http.server.BaseHTTPRequestHandler):
                     instance_id = data.get("instance_id")
                     if not instance_id:
                         loaded = client.list_models()
-                        if "data" in loaded:
-                            for m in loaded["data"]:
-                                if m.get("id") == model:
+                        models_data = loaded.get("models", []) or loaded.get("data", [])
+                        for m in models_data:
+                            model_id = m.get("key") or m.get("id")
+                            if model_id == model:
+                                if "loaded_instances" in m:
+                                    instances = m.get("loaded_instances", [])
+                                    if instances:
+                                        instance_id = instances[0].get("id") or instances[0].get("instance_identifier")
+                                else:
                                     instance_id = m.get("instance_identifier") or m.get("instance_id")
-                                    break
+                                break
                     res = client.unload_model(model, instance_id=instance_id)
                 elif path == "/api/lmstudio/download":
                     model = data.get("model")

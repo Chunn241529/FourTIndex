@@ -27,7 +27,7 @@ def test_create_provider_rejects_third_party_provider():
         },
     )()
 
-    with pytest.raises(ProviderError, match="supports 'ollama', 'lmstudio', and 'fake'"):
+    with pytest.raises(ProviderError, match="supports 'ollama', 'lmstudio', 'local', and 'fake'"):
         create_provider("remote", config)
 
 
@@ -43,6 +43,8 @@ def test_lmstudio_provider_validates_embeddings(monkeypatch):
         },
     )()
     provider = create_provider("lmstudio", config)
+
+    assert provider.max_parallel_workers == 1
 
     monkeypatch.setattr(
         provider.lm_client,

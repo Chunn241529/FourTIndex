@@ -86,12 +86,12 @@ def test_mcp_index_and_search_codebase(tmp_path):
     assert res_data["scanned"] == 1
     
     # Test search_codebase text mode
-    search_res = mcp_server.search_codebase("hello", "FourTIndex")
+    search_res = mcp_server.search_codebase("hello print", "FourTIndex")
     assert "app.py" in search_res
     assert "Freshness:" in search_res
     
     # Test search_codebase JSON mode
-    search_res_json = mcp_server.search_codebase("hello", "FourTIndex", output_json=True)
+    search_res_json = mcp_server.search_codebase("hello print", "FourTIndex", output_json=True)
     search_data = json.loads(search_res_json)
     assert len(search_data) > 0
     assert search_data[0]["file_path"] == "app.py"
@@ -101,7 +101,8 @@ def test_mcp_index_and_search_codebase(tmp_path):
     
     # Modify file to make it stale
     py_file.write_text("def hello():\n    print('Hello World Updated')\n", encoding="utf-8")
-    search_res_json_stale = mcp_server.search_codebase("hello", "FourTIndex", output_json=True)
+    mcp_server._query_cache.clear()
+    search_res_json_stale = mcp_server.search_codebase("hello print", "FourTIndex", output_json=True)
     search_data_stale = json.loads(search_res_json_stale)
     assert search_data_stale[0]["stale"] is True
 

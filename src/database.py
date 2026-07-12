@@ -13,19 +13,19 @@ class Database:
         self.client = chromadb.PersistentClient(path=self.config.db_persist_directory)
         
         # Initialize collections
-        self.code_chunks = self.client.get_or_create_collection(
+        self.code_chunks = self._safe_get_collection(
             name="code_chunks",
             metadata={"hnsw:space": "cosine"}  # Use cosine similarity for embeddings
         )
-        self.file_outlines = self.client.get_or_create_collection(
+        self.file_outlines = self._safe_get_collection(
             name="file_outlines",
             metadata={"hnsw:space": "cosine"}
         )
-        self.session_memories = self.client.get_or_create_collection(
+        self.session_memories = self._safe_get_collection(
             name="session_memories",
             metadata={"hnsw:space": "cosine"}
         )
-        self.skills = self.client.get_or_create_collection(
+        self.skills = self._safe_get_collection(
             name="skills",
             metadata={"hnsw:space": "cosine"}
         )
@@ -39,12 +39,29 @@ class Database:
         suffix = f"{project_id}_{store_id}".replace("-", "_")
         return f"code_{suffix}", f"outline_{suffix}"
 
+    def _safe_get_collection(self, name: str, metadata: dict = None):
+        try:
+            return self.client.get_collection(name=name)
+        except Exception:
+            return self.client.get_or_create_collection(name=name, metadata=metadata)
+
+    def _connect_db(self):
+        import sqlite3
+        conn = sqlite3.connect(self.registry_db_path)
+        try:
+            conn.execute("PRAGMA journal_mode = WAL;")
+            conn.execute("PRAGMA synchronous = NORMAL;")
+            conn.execute("PRAGMA cache_size = -64000;")
+        except Exception:
+            pass
+        return conn
+
     def get_project_collections(self, project_id: str, store_id: str):
         code_name, outline_name = self._project_collection_names(project_id, store_id)
-        code = self.client.get_or_create_collection(
+        code = self._safe_get_collection(
             name=code_name, metadata={"hnsw:space": "cosine"}
         )
-        outlines = self.client.get_or_create_collection(
+        outlines = self._safe_get_collection(
             name=outline_name, metadata={"hnsw:space": "cosine"}
         )
         return code, outlines
@@ -57,8 +74,7 @@ class Database:
                 pass
         # Sync with FTS5
         try:
-            import sqlite3
-            with sqlite3.connect(self.registry_db_path) as conn:
+            with self._connect_db() as conn:
                 conn.execute("DELETE FROM code_chunks_fts WHERE project_id = ? AND store_id = ?", (project_id, store_id))
                 conn.commit()
         except Exception:
@@ -70,8 +86,7 @@ class Database:
         self.file_outlines.delete(where=where)
         # Sync with FTS5
         try:
-            import sqlite3
-            with sqlite3.connect(self.registry_db_path) as conn:
+            with self._connect_db() as conn:
                 conn.execute("DELETE FROM code_chunks_fts WHERE project_name = ?", (project_name,))
                 conn.commit()
         except Exception:
@@ -91,8 +106,7 @@ class Database:
         # Sync with FTS5
         if code_records:
             try:
-                import sqlite3
-                with sqlite3.connect(self.registry_db_path) as conn:
+                with self._connect_db() as conn:
                     data_to_insert = []
                     for item in code_records:
                         proj_name = item["metadata"].get("project_name", "")
@@ -141,8 +155,7 @@ class Database:
             code.delete(ids=code_ids)
             # Sync with FTS5
             try:
-                import sqlite3
-                with sqlite3.connect(self.registry_db_path) as conn:
+                with self._connect_db() as conn:
                     for i in range(0, len(code_ids), 999):
                         batch = code_ids[i:i+999]
                         placeholders = ",".join("?" for _ in batch)
@@ -224,7 +237,7 @@ class Database:
         results = []
         
         try:
-            with sqlite3.connect(self.registry_db_path) as conn:
+            with self._connect_db() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
                     SELECT id FROM code_chunks_fts 
@@ -287,8 +300,7 @@ class Database:
             
         # Sync with FTS5
         try:
-            import sqlite3
-            with sqlite3.connect(self.registry_db_path) as conn:
+            with self._connect_db() as conn:
                 conn.execute("DELETE FROM code_chunks_fts WHERE project_name = ? AND file_path = ?", (project_name, relative_path))
                 conn.commit()
         except Exception:
@@ -372,21 +384,47 @@ class Database:
 
     def upsert_session_memory(self, memory_id: str, embedding: list[float], content: str, metadata: dict):
         """Saves a session summary memory to retrieve design history later."""
-        self.session_memories.upsert(
-            ids=[memory_id],
-            embeddings=[embedding],
-            documents=[content],
-            metadatas=[metadata]
-        )
+        try:
+            self.session_memories.upsert(
+                ids=[memory_id],
+                embeddings=[embedding],
+                documents=[content],
+                metadatas=[metadata]
+            )
+        except Exception as e:
+            if "expecting embedding with dimension of" in str(e):
+                import sys
+                sys.stderr.write("Warning: Session memory collection dimension mismatch. Recreating...\n")
+                try:
+                    self.client.delete_collection("session_memories")
+                    self.session_memories = self.client.get_or_create_collection(
+                        name="session_memories",
+                        metadata={"hnsw:space": "cosine"}
+                    )
+                    self.session_memories.upsert(
+                        ids=[memory_id],
+                        embeddings=[embedding],
+                        documents=[content],
+                        metadatas=[metadata]
+                    )
+                except Exception as ex:
+                    raise RuntimeError(f"Failed to reset session memories collection: {ex}") from ex
+            else:
+                raise
 
     def search_session_memories(self, query_embedding: list[float], project_name: str, limit: int = 3) -> list[dict]:
         """Searches past session memories."""
         where_clause = {"project_name": project_name}
-        results = self.session_memories.query(
-            query_embeddings=[query_embedding],
-            n_results=limit,
-            where=where_clause
-        )
+        try:
+            results = self.session_memories.query(
+                query_embeddings=[query_embedding],
+                n_results=limit,
+                where=where_clause
+            )
+        except Exception as e:
+            if "expecting embedding with dimension of" in str(e):
+                return []
+            raise
         
         formatted_results = []
         if results and "documents" in results and results["documents"]:
@@ -450,21 +488,47 @@ class Database:
         """Inserts or updates skill chunks in the vector database."""
         if not ids:
             return
-        self.skills.upsert(
-            ids=ids,
-            embeddings=embeddings,
-            documents=documents,
-            metadatas=metadatas
-        )
+        try:
+            self.skills.upsert(
+                ids=ids,
+                embeddings=embeddings,
+                documents=documents,
+                metadatas=metadatas
+            )
+        except Exception as e:
+            if "expecting embedding with dimension of" in str(e):
+                import sys
+                sys.stderr.write("Warning: Skills collection dimension mismatch. Recreating...\n")
+                try:
+                    self.client.delete_collection("skills")
+                    self.skills = self.client.get_or_create_collection(
+                        name="skills",
+                        metadata={"hnsw:space": "cosine"}
+                    )
+                    self.skills.upsert(
+                        ids=ids,
+                        embeddings=embeddings,
+                        documents=documents,
+                        metadatas=metadatas
+                    )
+                except Exception as ex:
+                    raise RuntimeError(f"Failed to reset skills collection: {ex}") from ex
+            else:
+                raise
 
     def search_skills(self, query_embedding: list[float], project_name: str, limit: int = 3) -> list[dict]:
         """Searches for relevant skill sections using vector similarity."""
         where_clause = {"project_name": project_name}
-        results = self.skills.query(
-            query_embeddings=[query_embedding],
-            n_results=limit,
-            where=where_clause
-        )
+        try:
+            results = self.skills.query(
+                query_embeddings=[query_embedding],
+                n_results=limit,
+                where=where_clause
+            )
+        except Exception as e:
+            if "expecting embedding with dimension of" in str(e):
+                return []
+            raise
         
         formatted_results = []
         if results and "documents" in results and results["documents"]:
@@ -483,9 +547,8 @@ class Database:
         return formatted_results
 
     def _init_registry_db(self):
-        import sqlite3
         os.makedirs(os.path.dirname(self.registry_db_path), exist_ok=True)
-        with sqlite3.connect(self.registry_db_path) as conn:
+        with self._connect_db() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS project_roadmaps (
                     project_name TEXT PRIMARY KEY,
@@ -513,10 +576,9 @@ class Database:
 
     def save_project_roadmap(self, project_name: str, directory_tree: dict, framework_signatures: list[str]):
         """Saves the project roadmap to the SQLite registry database."""
-        import sqlite3
         import datetime
         now_str = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
-        with sqlite3.connect(self.registry_db_path) as conn:
+        with self._connect_db() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO project_roadmaps (project_name, directory_tree_json, framework_signatures_json, last_updated)
                 VALUES (?, ?, ?, ?)
@@ -530,8 +592,7 @@ class Database:
 
     def get_project_roadmap(self, project_name: str) -> dict | None:
         """Retrieves the project roadmap from the SQLite registry database."""
-        import sqlite3
-        with sqlite3.connect(self.registry_db_path) as conn:
+        with self._connect_db() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT directory_tree_json, framework_signatures_json, last_updated
@@ -550,9 +611,8 @@ class Database:
 
     def list_projects(self) -> list[dict]:
         """Lists all registered projects with roadmaps from the SQLite registry database."""
-        import sqlite3
         projects = []
-        with sqlite3.connect(self.registry_db_path) as conn:
+        with self._connect_db() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT project_name, framework_signatures_json, last_updated
@@ -571,6 +631,18 @@ class Database:
         import pathspec
         project_root = os.path.abspath(project_root)
         ignore_lines = list(self.config.exclude_globs)
+        default_ignores = [
+            "package-lock.json",
+            "yarn.lock",
+            "pnpm-lock.yaml",
+            "bun.lockb",
+            "*.min.js",
+            "*.min.css",
+            "*.map"
+        ]
+        for item in default_ignores:
+            if item not in ignore_lines:
+                ignore_lines.append(item)
         if self.config.respect_gitignore:
             for ignore_name in (".gitignore", ".fourtindexignore"):
                 ignore_path = os.path.join(project_root, ignore_name)

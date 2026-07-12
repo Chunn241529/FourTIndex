@@ -1,6 +1,7 @@
 import os
 import sys
 import yaml
+import subprocess
 from dotenv import load_dotenv
 
 # System internal configuration signature
@@ -61,6 +62,26 @@ class Config:
             return int(value)
         except (TypeError, ValueError):
             return default
+
+    def _detect_vram_mb(self) -> int:
+        try:
+            output = subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=2
+            )
+            # Sum up VRAM if multiple GPUs, or just take the first one
+            return sum(int(x.strip()) for x in output.strip().split("\n"))
+        except Exception:
+            return 0
+            
+    def _get_system_ram_gb(self) -> int:
+        try:
+            import psutil
+            return int(psutil.virtual_memory().total / (1024 ** 3))
+        except Exception:
+            return 0
 
     def load(self):
         """Loads configuration from yaml file."""
@@ -148,13 +169,22 @@ class Config:
     @property
     def lmstudio_embedding_model(self) -> str:
         return os.environ.get("LMSTUDIO_EMBEDDING_MODEL") or self.data.get("lmstudio", {}).get(
-            "embedding_model", "text-embedding-qwen3-embedding-0.6b"
+            "embedding_model", "monas-embeddings-text-code"
         )
 
     @property
     def lmstudio_api_token(self) -> str:
-        return os.environ.get("LMSTUDIO_API_TOKEN") or self.data.get("lmstudio", {}).get(
-            "api_token", ""
+        token = os.environ.get("LMSTUDIO_API_TOKEN") or self.data.get("lmstudio", {}).get(
+            "api_token"
+        )
+        if token is None or token == "":
+            return "lmstudio"
+        return token
+
+    @property
+    def local_embedding_model(self) -> str:
+        return os.environ.get("LOCAL_EMBEDDING_MODEL") or self.data.get("local", {}).get(
+            "embedding_model", "monas-embeddings-text-code"
         )
 
 
@@ -164,11 +194,31 @@ class Config:
 
     @property
     def embedding_batch_size(self) -> int:
-        return max(1, self._int_value("embedding", "batch_size", 64))
+        configured = self._int_value("embedding", "batch_size", 0)
+        if configured > 0:
+            return configured
+        vram_mb = self._detect_vram_mb()
+        if vram_mb >= 12000:
+            return 256
+        elif vram_mb >= 8000:
+            return 128
+        return 64
 
     @property
     def embedding_batch_max_chars(self) -> int:
         return max(1, self._int_value("embedding", "batch_max_chars", 250000))
+
+    @property
+    def embedding_parallel_workers(self) -> int:
+        configured = self._int_value("embedding", "parallel_workers", 0)
+        if configured > 0:
+            return configured
+        ram_gb = self._get_system_ram_gb()
+        if ram_gb >= 32:
+            return 8
+        elif ram_gb >= 16:
+            return 4
+        return 2
 
     @property
     def embedding_retry_attempts(self) -> int:
@@ -177,11 +227,29 @@ class Config:
     @property
     def parse_workers(self) -> int:
         configured = self._int_value("indexing", "parse_workers", 0)
-        return configured if configured > 0 else min(8, max(1, os.cpu_count() or 1))
+        if configured > 0:
+            return configured
+        ram_gb = self._get_system_ram_gb()
+        cpu_count = os.cpu_count() or 4
+        if ram_gb < 8:
+            return 2
+        elif ram_gb < 16:
+            return min(2, cpu_count)
+        elif ram_gb < 32:
+            return min(4, cpu_count // 2)
+        return min(12, max(1, cpu_count - 2))
 
     @property
     def commit_batch_files(self) -> int:
-        return max(1, self._int_value("indexing", "commit_batch_files", 32))
+        configured = self._int_value("indexing", "commit_batch_files", 0)
+        if configured > 0:
+            return configured
+        ram_gb = self._get_system_ram_gb()
+        if ram_gb >= 32:
+            return 128
+        elif ram_gb >= 16:
+            return 64
+        return 32
 
     @property
     def max_file_size_bytes(self) -> int:
@@ -218,7 +286,7 @@ class Config:
     @property
     def rerank_model(self) -> str:
         return os.environ.get("RERANK_MODEL") or self.data.get("rerank", {}).get(
-            "model", "qwen3-reranker-0.6b"
+            "model", "monas-reranker"
         )
 
     @property

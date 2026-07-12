@@ -50,10 +50,56 @@ class LMStudioClient:
 
     def unload_model(self, model: str, instance_id: Optional[str] = None) -> Dict[str, Any]:
         """Unloads a model from memory via POST /api/v1/models/unload."""
-        payload = {"model": model}
-        if instance_id:
-            payload["instance_id"] = instance_id
+        if not instance_id:
+            try:
+                loaded = self.list_models()
+                models_data = loaded.get("models", []) or loaded.get("data", [])
+                for m in models_data:
+                    model_id = m.get("key") or m.get("id")
+                    if model_id == model:
+                        instances = m.get("loaded_instances", [])
+                        if instances:
+                            instance_id = instances[0].get("id") or instances[0].get("instance_identifier")
+                        else:
+                            instance_id = m.get("instance_identifier") or m.get("instance_id") or m.get("id")
+                        break
+            except Exception:
+                pass
+        
+        if not instance_id:
+            instance_id = model
+
+        payload = {"instance_id": instance_id}
         return self._request("/api/v1/models/unload", method="POST", data=payload)
+
+    def unload_all_models(self) -> list:
+        """Unloads all currently loaded model instances from LM Studio memory.
+        Returns a list of unloaded instance IDs/keys.
+        """
+        unloaded_list = []
+        try:
+            loaded = self.list_models()
+            models_data = loaded.get("models", []) or loaded.get("data", [])
+            for m in models_data:
+                model_key = m.get("key") or m.get("id")
+                instances = m.get("loaded_instances", [])
+                if instances:
+                    for inst in instances:
+                        inst_id = inst.get("id") or inst.get("instance_identifier")
+                        if inst_id:
+                            res = self.unload_model(model_key, instance_id=inst_id)
+                            if "error" not in res:
+                                unloaded_list.append(inst_id)
+                else:
+                    inst_id = m.get("instance_identifier") or m.get("instance_id")
+                    if inst_id:
+                        res = self.unload_model(model_key, instance_id=inst_id)
+                        if "error" not in res:
+                            unloaded_list.append(inst_id)
+        except Exception:
+            pass
+        return unloaded_list
+
 
     def download_model(self, model_url_or_repo: str) -> Dict[str, Any]:
         """Requests downloading a model via POST /api/v1/models/download."""

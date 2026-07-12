@@ -9,3 +9,4 @@ tree-sitter==0.21.3
 tree-sitter-languages
 sentence-transformers
 watchdog>=4.0.0
+psutil>=5.9.0

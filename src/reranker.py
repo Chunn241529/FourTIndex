@@ -38,9 +38,14 @@ class LocalReranker:
             return
             
         if self.model is None:
+            import os
             # Import sentence_transformers inside initialization to keep startup times fast
             from sentence_transformers import CrossEncoder
-            self.model = CrossEncoder(self.model_name)
+            model_path = self.model_name
+            if model_path == "monas-reranker":
+                if not os.path.isdir(model_path):
+                    model_path = "trungvn2401s/monas-reranker"
+            self.model = CrossEncoder(model_path)
 
     def rerank(self, query: str, chunks: List[Dict[str, Any]], top_k: int = 5) -> List[Dict[str, Any]]:
         """Reranks retrieved codebase chunks based on relevance to query using CrossEncoder or LM Studio API."""

@@ -40,30 +40,32 @@ provider: "lmstudio"
 
 ollama:
   host: "http://localhost:11434"
-  embedding_model: "qwen3-embedding:0.6b"
+  embedding_model: "monas-embeddings-text-code"
   llm_model: "monas"
 
 lmstudio:
   host: "http://127.0.0.1:2401"
   llm_model: "monas"
-  embedding_model: "text-embedding-qwen3-embedding-0.6b"
+  embedding_model: "monas-embeddings-text-code"
   api_token: ""
 
+local:
+  embedding_model: "monas-embeddings-text-code"
 
 embedding:
-  batch_size: 64
-  batch_max_chars: 250000
+  batch_size: 0
+  batch_max_chars: 500000
   retry_attempts: 2
 
 indexing:
   parse_workers: 0
-  commit_batch_files: 32
+  commit_batch_files: 0
   max_file_size_bytes: 2097152
   respect_gitignore: true
   exclude_globs: []
 
 rerank:
   enabled: true
-  model: "qwen3-reranker-0.6b"
+  model: "monas-reranker"
   candidates_limit: 15
 

@@ -72,21 +72,79 @@ def cmd_index(args):
             project_name = os.path.basename(target_path) or config.project_name
 
     try:
-        result = service.index_project(
-            args.path,
-            project_name,
-            IndexOptions(
-                embedding_provider=args.embedding_provider,
-                rebuild=args.rebuild,
-                force=args.force,
-                batch_size=args.batch_size,
-                workers=args.workers,
-            ),
-        )
+        active_provider = config.llm_provider.lower()
+        if active_provider == "lmstudio":
+            model_name = config.lmstudio_embedding_model
+        elif active_provider == "ollama":
+            model_name = config.ollama_embedding_model
+        elif active_provider == "local":
+            model_name = config.local_embedding_model
+        else:
+            model_name = "unknown"
+        print(f"DEBUG: loaded embedding model: {model_name}")
+        
+        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, MofNCompleteColumn, TimeElapsedColumn
+        
+        # We write to stderr console to avoid interfering with stdout if pipelined
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+            console=console,
+        ) as progress:
+            scan_task = progress.add_task("[yellow]Quét thư mục & kiểm tra SHA-256...", total=None)
+            parse_task = progress.add_task("[blue]Phân tích cú pháp AST...", total=1, visible=False)
+            embed_task = progress.add_task("[green]Gửi gói nhúng song song...", total=1, visible=False)
+            commit_task = progress.add_task("[magenta]Ghi chỉ mục vào Database...", total=1, visible=False)
+
+            def progress_callback(phase: str, current: int, total: int):
+                if phase == "scan":
+                    progress.update(scan_task, completed=current, total=total, description=f"[yellow]Đã quét {current} files")
+                    if current == total:
+                        progress.update(scan_task, description="[bold yellow]Hoàn thành quét thư mục")
+                elif phase == "parse":
+                    if not progress.tasks[parse_task].visible:
+                        progress.update(parse_task, visible=True)
+                    progress.update(parse_task, completed=current, total=total, description=f"[blue]Parse AST [Tiến trình: {config.parse_workers}]")
+                    if current == total:
+                        progress.update(parse_task, description="[bold blue]Hoàn thành phân tích AST")
+                elif phase == "embed":
+                    if not progress.tasks[embed_task].visible:
+                        progress.update(embed_task, visible=True)
+                    progress.update(embed_task, completed=current, total=total, description=f"[green]Gói nhúng [Luồng: {config.embedding_parallel_workers}]")
+                    if current == total:
+                        progress.update(embed_task, description="[bold green]Hoàn thành nhúng vector")
+                elif phase == "index":
+                    if not progress.tasks[commit_task].visible:
+                        progress.update(commit_task, visible=True)
+                    progress.update(commit_task, completed=current, total=total, description="[magenta]Ghi dữ liệu SQLite + ChromaDB")
+                    if current == total:
+                        progress.update(commit_task, description="[bold magenta]Hoàn thành ghi Database")
+
+            result = service.index_project(
+                args.path,
+                project_name,
+                IndexOptions(
+                    embedding_provider=args.embedding_provider,
+                    rebuild=args.rebuild,
+                    force=args.force,
+                    batch_size=args.batch_size,
+                    workers=args.workers,
+                ),
+                progress=progress_callback
+            )
         style = "bold green" if result.completed else "bold yellow"
         console.print(result.summary(), style=style)
         if result.failed:
             console.print("Failed files: " + ", ".join(result.failed), style="bold red")
+        
+        # Always run clean_mem after index finishes
+        console.print("\n[bold blue]Automatically cleaning up RAM & VRAM...[/bold blue]")
+        from src.memory_cleaner import clean_all_memory
+        cleanup_report = clean_all_memory(config, unload_models=False)
+        console.print(cleanup_report)
     except KeyboardInterrupt:
         console.print("Indexing interrupted; completed checkpoints were preserved.", style="yellow")
         raise SystemExit(130)
@@ -258,6 +316,12 @@ def cmd_index_skill(args):
         
     db.upsert_skill_chunks(ids, embeddings, documents, metadatas)
     console.print(f"[bold green]Success![/bold green] Indexed skill '[cyan]{skill_name}[/cyan]' with {len(ids)} sections.")
+    
+    # Always run clean_mem after index-skill finishes
+    console.print("\n[bold blue]Automatically cleaning up RAM & VRAM...[/bold blue]")
+    from src.memory_cleaner import clean_all_memory
+    cleanup_report = clean_all_memory(config, unload_models=False)
+    console.print(cleanup_report)
 
 def cmd_search_skills(args):
     config = Config()
@@ -327,38 +391,8 @@ def cmd_setup_lmstudio(args):
 
 def cmd_clean_mem(args):
     config = Config()
-    provider = config.llm_provider.lower()
-    
-    if provider == "lmstudio":
-        try:
-            from src.lmstudio_client import LMStudioClient
-            client = LMStudioClient(config)
-            models = [
-                getattr(config, "lmstudio_embedding_model", ""),
-                getattr(config, "lmstudio_llm_model", "")
-            ]
-            unloaded_list = []
-            for model in models:
-                if model:
-                    res = client.unload_model(model)
-                    if "error" not in res:
-                        unloaded_list.append(model)
-            if unloaded_list:
-                print(f"Successfully unloaded model(s) '{', '.join(unloaded_list)}' from LM Studio.")
-            else:
-                print("No configured models were actively loaded in LM Studio to unload.")
-        except Exception as e:
-            print(f"Error unloading models from LM Studio: {e}")
-    else:
-        from src.setup_ollama import unload_models
-        unload_models()
-        print("Successfully unloaded all models from Ollama VRAM/RAM.")
-        
-    try:
-        from src.token_meter import evaluate_latest_session
-        print(evaluate_latest_session())
-    except Exception as e:
-        print(f"Error in token evaluation: {e}")
+    from src.memory_cleaner import clean_all_memory
+    print(clean_all_memory(config, unload_models=True))
 
 
 

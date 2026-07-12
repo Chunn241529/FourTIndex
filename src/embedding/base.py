@@ -42,6 +42,7 @@ class EmbeddingProfile:
 class EmbeddingProvider(ABC):
     name = "base"
     max_batch_items = 64
+    max_parallel_workers: int | None = None
 
     def __init__(self, model: str, dimension: int):
         self.model = model

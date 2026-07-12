@@ -13,10 +13,26 @@ from src.embedding.providers import create_provider
 
 console = Console()
 
-def check_http_endpoint(url: str, timeout: float = 3.0) -> Tuple[bool, str, List[str]]:
+
+def is_lmstudio_embedding_model_available(
+    configured_model: str, available_models: List[str]
+) -> bool:
+    """Return whether LM Studio exposes the configured embedding model or its API alias."""
+    if not configured_model:
+        return False
+
+    candidates = {configured_model}
+    if not configured_model.startswith("text-embedding-"):
+        candidates.add(f"text-embedding-{configured_model}")
+    return not candidates.isdisjoint(available_models)
+
+
+def check_http_endpoint(url: str, api_token: str = None, timeout: float = 3.0) -> Tuple[bool, str, List[str]]:
     """Checks if HTTP endpoint is active and returns list of available model names."""
     try:
         req = urllib.request.Request(url)
+        if api_token:
+            req.add_header("Authorization", f"Bearer {api_token}")
         with urllib.request.urlopen(req, timeout=timeout) as response:
             data = json.loads(response.read().decode("utf-8"))
             
@@ -53,7 +69,9 @@ def run_diagnostics(config: Config) -> bool:
     # Check LM Studio
     lmstudio_host = config.lmstudio_host
     lmstudio_url = f"{lmstudio_host.rstrip('/')}/v1/models"
-    lmstudio_ok, lmstudio_status, lmstudio_models = check_http_endpoint(lmstudio_url)
+    lmstudio_ok, lmstudio_status, lmstudio_models = check_http_endpoint(
+        lmstudio_url, api_token=config.lmstudio_api_token
+    )
     
     # Render Providers Table
     table = Table(title="Provider Health Status")
@@ -102,7 +120,7 @@ def run_diagnostics(config: Config) -> bool:
             else:
                 console.print(f"  [red]✗[/red] LLM Model '{llm_model}' is not loaded/available in LM Studio.")
                 all_ok = False
-            if embed_model in lmstudio_models:
+            if is_lmstudio_embedding_model_available(embed_model, lmstudio_models):
                 console.print(f"  [green]✓[/green] Embedding Model '{embed_model}' is loaded in LM Studio.")
             else:
                 console.print(f"  [red]✗[/red] Embedding Model '{embed_model}' is not loaded/available in LM Studio.")

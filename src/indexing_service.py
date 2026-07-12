@@ -1,5 +1,6 @@
 import hashlib
 import os
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -104,13 +105,13 @@ class IndexingService:
         ]
         result.skipped = len(file_states) - len(changed)
 
-        parsed = self._parse_files(changed, options.workers or self.config.parse_workers, result)
+        parsed = self._parse_files(changed, options.workers or self.config.parse_workers, result, progress)
         total_groups = max(1, (len(parsed) + self.config.commit_batch_files - 1) // self.config.commit_batch_files)
         for group_index, start in enumerate(
             range(0, len(parsed), self.config.commit_batch_files), start=1
         ):
             group = parsed[start : start + self.config.commit_batch_files]
-            successful = self._embed_group(group, options, result)
+            successful = self._embed_group(group, options, result, progress)
             if successful:
                 self._commit_group(project, store, successful, result)
             self._notify(progress, "index", group_index, total_groups)
@@ -194,44 +195,84 @@ class IndexingService:
         with ThreadPoolExecutor(max_workers=workers) as executor:
             return list(executor.map(inspect, files))
 
-    def _parse_files(self, states: list[tuple], workers: int, result: IndexResult) -> list[FileRecord]:
-        def parse(state: tuple) -> FileRecord:
-            absolute, relative, content_hash, size, modified_ns = state
-            chunks = self.indexer.parse_file(absolute, relative)
-            outline = self.indexer.generate_file_outline_summary(chunks, relative)
-            return FileRecord(
-                absolute, relative, content_hash, size, modified_ns, chunks, outline
-            )
+    def _parse_files(self, states: list[tuple], workers: int, result: IndexResult, progress=None) -> list[FileRecord]:
+        if not states:
+            return []
 
+        ram_gb = self.config._get_system_ram_gb()
+        # Use ProcessPoolExecutor to bypass the GIL only on machines with sufficient RAM (>=8GB)
+        # and when there is a significant amount of files to parse (>=10).
+        use_processes = (ram_gb >= 8) and (len(states) >= 10)
+        
         records = []
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = [(state, executor.submit(parse, state)) for state in states]
-            for state, future in futures:
-                try:
-                    records.append(future.result())
-                except Exception:
-                    result.failed.append(state[1])
+        total_files = len(states)
+        parsed_count = 0
+        self._notify(progress, "parse", 0, total_files)
+
+        if use_processes:
+            from concurrent.futures import ProcessPoolExecutor
+            with ProcessPoolExecutor(max_workers=workers) as executor:
+                futures = {
+                    executor.submit(_parse_single_file_task, self.config, state): state 
+                    for state in states
+                }
+                for future in futures:
+                    state = futures[future]
+                    try:
+                        relative, chunks, outline = future.result()
+                        absolute, _, content_hash, size, modified_ns = state
+                        records.append(FileRecord(
+                            absolute, relative, content_hash, size, modified_ns, chunks, outline
+                        ))
+                    except Exception as e:
+                        sys.stderr.write(f"Warning: Failed to parse file {state[1]} in child process: {e}\n")
+                        result.failed.append(state[1])
+                    parsed_count += 1
+                    self._notify(progress, "parse", parsed_count, total_files)
+        else:
+            def parse_thread(state: tuple) -> FileRecord:
+                absolute, relative, content_hash, size, modified_ns = state
+                chunks = self.indexer.parse_file(absolute, relative)
+                outline = self.indexer.generate_file_outline_summary(chunks, relative)
+                return FileRecord(
+                    absolute, relative, content_hash, size, modified_ns, chunks, outline
+                )
+
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = {executor.submit(parse_thread, state): state for state in states}
+                for future in futures:
+                    state = futures[future]
+                    try:
+                        records.append(future.result())
+                    except Exception as e:
+                        sys.stderr.write(f"Warning: Failed to parse file {state[1]}: {e}\n")
+                        result.failed.append(state[1])
+                    parsed_count += 1
+                    self._notify(progress, "parse", parsed_count, total_files)
+                    
         return records
 
     def _embed_group(
-        self, records: list[FileRecord], options: IndexOptions, result: IndexResult
+        self, records: list[FileRecord], options: IndexOptions, result: IndexResult, progress=None
     ) -> list[FileRecord]:
         if not records:
             return []
         try:
-            self._embed_records(records, options)
+            self._embed_records(records, options, result, progress)
             return records
         except ProviderInputError:
             successful = []
             for record in records:
                 try:
-                    self._embed_records([record], options)
+                    self._embed_records([record], options, result, progress)
                     successful.append(record)
                 except ProviderError:
                     result.failed.append(record.relative_path)
             return successful
 
-    def _embed_records(self, records: list[FileRecord], options: IndexOptions) -> None:
+    def _embed_records(
+        self, records: list[FileRecord], options: IndexOptions, result: IndexResult, progress=None
+    ) -> None:
         items = []
         for record in records:
             record.chunk_embeddings = [[] for _ in record.chunks]
@@ -240,18 +281,81 @@ class IndexingService:
             items.append((record, "outline", 0, record.outline))
 
         provider = self.embedding.provider
-        batch_limit = min(
-            options.batch_size or self.config.embedding_batch_size,
-            provider.max_batch_items if provider else self.config.embedding_batch_size,
-        )
-        for batch in self._pack_batches(items, batch_limit, self.config.embedding_batch_max_chars):
-            vectors = self.embedding.embed_documents([item[3] for item in batch])
-            for item, vector in zip(batch, vectors):
-                record, kind, index, _ = item
-                if kind == "chunk":
-                    record.chunk_embeddings[index] = vector
-                else:
-                    record.outline_embedding = vector
+        manual_batch_size = self.config._int_value("embedding", "batch_size", 0)
+        if manual_batch_size > 0:
+            batch_limit = manual_batch_size
+        else:
+            batch_limit = min(
+                options.batch_size or self.config.embedding_batch_size,
+                provider.max_batch_items if provider else self.config.embedding_batch_size,
+            )
+        
+        batches = list(self._pack_batches(items, batch_limit, self.config.embedding_batch_max_chars))
+        if not batches:
+            return
+
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        
+        configured_workers = self.config.embedding_parallel_workers
+        if provider and provider.max_parallel_workers is not None:
+            configured_workers = min(
+                configured_workers, provider.max_parallel_workers
+            )
+        max_workers = min(configured_workers, len(batches))
+        total_batches = len(batches)
+        completed_batches = 0
+        self._notify(progress, "embed", 0, total_batches)
+        
+        progress_lock = threading.Lock()
+        
+        def process_batch(batch):
+            nonlocal completed_batches
+            try:
+                vectors = self.embedding.embed_documents([item[3] for item in batch])
+                with progress_lock:
+                    completed_batches += 1
+                    self._notify(progress, "embed", completed_batches, total_batches)
+                return batch, vectors, None
+            except Exception as e:
+                with progress_lock:
+                    completed_batches += 1
+                    self._notify(progress, "embed", completed_batches, total_batches)
+                return batch, None, e
+
+        results = []
+        if max_workers > 1:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [executor.submit(process_batch, b) for b in batches]
+                for future in futures:
+                    results.append(future.result())
+        else:
+            for b in batches:
+                results.append(process_batch(b))
+
+        for batch, vectors, err in results:
+            if err is not None or vectors is None:
+                sys.stderr.write(f"Warning: Batch embedding failed ({err}). Falling back to sequential.\n")
+                for item in batch:
+                    record, kind, index, text = item
+                    try:
+                        vector = self.embedding.embed_query(text)
+                        if kind == "chunk":
+                            record.chunk_embeddings[index] = vector
+                        else:
+                            record.outline_embedding = vector
+                    except Exception as exc:
+                        sys.stderr.write(f"Error: Failed to embed item in sequential fallback: {exc}\n")
+                        if record.relative_path not in result.failed:
+                            result.failed.append(record.relative_path)
+                        raise ProviderInputError(f"Sequential fallback failed: {exc}")
+            else:
+                for item, vector in zip(batch, vectors):
+                    record, kind, index, _ = item
+                    if kind == "chunk":
+                        record.chunk_embeddings[index] = vector
+                    else:
+                        record.outline_embedding = vector
 
     @staticmethod
     def _pack_batches(items: list[tuple], max_items: int, max_chars: int):
@@ -374,3 +478,12 @@ def load_project_context(config: Config, project_name: str):
     manager = EmbeddingManager(config)
     manager.load_profile(profile)
     return database, manager, project, store
+
+
+def _parse_single_file_task(config: Config, state: tuple) -> tuple[str, list[dict], str]:
+    from src.indexer import Indexer
+    indexer = Indexer(config)
+    absolute, relative, _, _, _ = state
+    chunks = indexer.parse_file(absolute, relative)
+    outline = indexer.generate_file_outline_summary(chunks, relative)
+    return relative, chunks, outline

@@ -6,7 +6,24 @@ from unittest.mock import MagicMock, patch
 from src.config import Config
 from src.llm import LLMClient
 from src.watcher import CodebaseEventHandler
-from src.doctor import run_diagnostics, check_http_endpoint
+from src.doctor import (
+    check_http_endpoint,
+    is_lmstudio_embedding_model_available,
+    run_diagnostics,
+)
+
+
+def test_lmstudio_embedding_model_aliases():
+    available_models = ["text-embedding-monas-embeddings-text-code"]
+
+    assert is_lmstudio_embedding_model_available(
+        "monas-embeddings-text-code", available_models
+    )
+    assert is_lmstudio_embedding_model_available(
+        "text-embedding-monas-embeddings-text-code", available_models
+    )
+    assert not is_lmstudio_embedding_model_available("monas", available_models)
+    assert not is_lmstudio_embedding_model_available("", available_models)
 
 def test_watcher_filtering():
     """Tests that CodebaseEventHandler correctly filters out ignored files and directories."""
@@ -43,7 +60,11 @@ def test_watcher_filtering():
 def test_doctor_diagnostics(mock_check):
     """Tests that run_diagnostics evaluates health statuses correctly."""
     # Setup mock endpoints to return Online and mock model list
-    mock_check.side_effect = lambda url: (True, "Online", ["monas", "text-embedding-qwen3-embedding-0.6b"])
+    mock_check.side_effect = lambda url, *args, **kwargs: (
+        True,
+        "Online",
+        ["monas", "text-embedding-monas-embeddings-text-code"],
+    )
 
     config = Config()
     # Temporarily set provider to lmstudio for testing

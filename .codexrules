@@ -1,0 +1,5 @@
+
+
+> [!IMPORTANT]
+> **🚨 CRITICAL HANDOFF RULE: AUTO-RESUME MEMORY**
+> When starting a completely new chat session, the VERY FIRST THING you MUST DO is read the contents of the `.fourtindex_handoff.md` file located at the root of the project. This file contains your hibernated memory (current task, uncommitted changes, next steps). Absolutely do not make any code changes or suggest solutions until you have fully loaded this handoff context.

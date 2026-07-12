@@ -29,9 +29,18 @@ if exist fourtindex.egg-info (
     rmdir /s /q fourtindex.egg-info
 )
 
+:: Bump version
+echo Auto-bumping version in setup.py...
+python bump_version.py
+
 :: Run build
 echo Running python -m build...
 python -m build
+
+:: Install globally
+echo.
+echo Installing updated version globally...
+python -m pip install -U .
 
 echo.
 echo ==========================================

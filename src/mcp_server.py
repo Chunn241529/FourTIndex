@@ -264,7 +264,10 @@ def _auto_reindex_if_needed(project_name: str) -> bool:
         if needs_reindex:
             logger.info(f"Auto-reindex: triggering project index for '{project_name}'")
             service = IndexingService(config)
-            result = service.index_project(proj_path, project_name)
+            def progress_cb(phase, current, total):
+                if current == total or current % max(1, total // 10) == 0:
+                    logger.info(f"Auto-reindex progress: {phase} {current}/{total}")
+            result = service.index_project(proj_path, project_name, progress=progress_cb)
             logger.info(f"Auto-reindex completed: {result.summary()}")
             return True
             
@@ -924,6 +927,9 @@ def index_project(
     logger.info(f"index_project called for path: '{project_path}', output_json: {output_json}")
     try:
         service = IndexingService(config)
+        def progress_cb(phase, current, total):
+            if current == total or current % max(1, total // 5) == 0:
+                logger.info(f"Indexing progress '{project_name}': {phase} {current}/{total}")
         result = service.index_project(
             project_path,
             project_name,
@@ -932,9 +938,19 @@ def index_project(
                 rebuild=rebuild,
                 force=force,
             ),
+            progress=progress_cb
         )
         msg = result.summary()
         logger.info(msg)
+        
+        # Auto clean memory
+        try:
+            from src.memory_cleaner import clean_all_memory
+            cleanup_report = clean_all_memory(config, unload_models=False)
+            msg += f"\n\n[Memory Cleanup]\n{cleanup_report}"
+        except Exception as e:
+            logger.error(f"Auto-cleanup failed: {e}")
+            
         if output_json:
             return json.dumps({
                 "success": result.completed,
@@ -1051,14 +1067,23 @@ def index_skill(skill_path: str, project_name: str = None, output_json: bool = F
             metadatas.append(meta)
             
         db.upsert_skill_chunks(ids, embeddings, documents, metadatas)
+        
+        # Auto clean memory
+        cleanup_report = ""
+        try:
+            from src.memory_cleaner import clean_all_memory
+            cleanup_report = clean_all_memory(config, unload_models=False)
+        except Exception as e:
+            logger.error(f"Auto-cleanup failed: {e}")
+            
         if output_json:
             return json.dumps({
                 "success": True,
-                "message": f"Successfully indexed skill '{skill_name}' with {len(ids)} sections.",
+                "message": f"Successfully indexed skill '{skill_name}' with {len(ids)} sections." + (f"\n\n[Memory Cleanup]\n{cleanup_report}" if cleanup_report else ""),
                 "skill_name": skill_name,
                 "sections": len(ids)
             }, indent=2)
-        return f"Successfully indexed skill '{skill_name}' with {len(ids)} sections."
+        return f"Successfully indexed skill '{skill_name}' with {len(ids)} sections." + (f"\n\n[Memory Cleanup]\n{cleanup_report}" if cleanup_report else "")
     except Exception as e:
         log_error(f"index_skill: {str(e)}")
         logger.error(f"Error in index_skill: {e}")
@@ -1275,62 +1300,25 @@ def clean_mem(output_json: bool = False) -> str:
         output_json: Whether to return the output in JSON format.
     """
     logger.info("clean_mem called via MCP")
-    result = ""
-    provider = getattr(config, "llm_provider", "ollama").lower()
-    
-    if provider == "lmstudio":
-        try:
-            from src.lmstudio_client import LMStudioClient
-            client = LMStudioClient(config)
-            models_to_unload = set([
-                getattr(config, "lmstudio_embedding_model", ""),
-                getattr(config, "lmstudio_llm_model", "")
-            ])
-            unloaded_list = []
-            
-            loaded = client.list_models()
-            if "data" in loaded:
-                for m in loaded["data"]:
-                    model_id = m.get("id")
-                    if model_id and model_id in models_to_unload:
-                        instance_id = m.get("instance_identifier") or m.get("instance_id")
-                        res = client.unload_model(model_id, instance_id=instance_id)
-                        if "error" not in res:
-                            unloaded_list.append(model_id)
-            if unloaded_list:
-                result += f"Successfully unloaded model(s) '{', '.join(unloaded_list)}' from LM Studio.\n"
-            else:
-                result += "No configured models were actively loaded in LM Studio to unload.\n"
-        except Exception as e:
-            log_error(f"clean_mem (lmstudio): {str(e)}")
-            logger.error(f"Error in clean_mem for LM Studio: {e}")
-            result += f"Error unloading models from LM Studio: {str(e)}\n"
-    else:
-        try:
-            from src.setup_ollama import unload_models
-            unload_models()
-            result += "Successfully unloaded all models from Ollama VRAM/RAM.\n"
-        except Exception as e:
-            log_error(f"clean_mem (ollama): {str(e)}")
-            logger.error(f"Error in clean_mem: {e}")
-            result += f"Error unloading models: {str(e)}\n"
-        
     try:
-        from src.token_meter import evaluate_latest_session
-        report = evaluate_latest_session()
-        result += report
-    except Exception as e:
-        log_error(f"clean_mem (token meter): {str(e)}")
-        logger.error(f"Error in token evaluation during clean_mem: {e}")
-        result += f"\n[AgentTokenMeter] Lỗi: {str(e)}"
+        from src.memory_cleaner import clean_all_memory
+        result = clean_all_memory(config, unload_models=True)
         
-    if output_json:
-        return json.dumps({
-            "success": True,
-            "provider": provider,
-            "result": result.strip()
-        }, indent=2)
-    return result
+        if output_json:
+            return json.dumps({
+                "success": True,
+                "result": result.strip()
+            }, indent=2)
+        return result
+    except Exception as e:
+        log_error(f"clean_mem: {str(e)}")
+        logger.error(f"Error in clean_mem: {e}")
+        if output_json:
+            return json.dumps({
+                "success": False,
+                "error": str(e)
+            }, indent=2)
+        return f"Error: {str(e)}"
 
 @mcp.tool()
 def get_token_report(output_json: bool = False) -> str:
@@ -2073,6 +2061,34 @@ def get_health_dashboard(output_json: bool = False) -> str:
         if output_json:
             return json.dumps({"status": "error", "message": str(e)})
         return f"Error loading health dashboard: {str(e)}"
+
+
+# Wrap all tools with automatic memory cleanup (RAM & VRAM)
+def wrap_tools_with_cleanup(mcp_instance):
+    import functools
+    from src.memory_cleaner import clean_all_memory
+    
+    tool_manager = mcp_instance._tool_manager
+    
+    def _make_cleanup_wrapper(fn, tool_name):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                try:
+                    clean_all_memory(config, unload_models=False)
+                except Exception as e:
+                    logger.error(f"Auto post-tool memory cleanup failed for {tool_name}: {e}")
+        return wrapper
+
+    for name, tool_obj in tool_manager._tools.items():
+        if name in ("clean_mem", "index_project", "index_skill"):
+            continue
+        original_fn = tool_obj.fn
+        tool_obj.fn = _make_cleanup_wrapper(original_fn, name)
+
+wrap_tools_with_cleanup(mcp)
 
 
 if __name__ == "__main__":

@@ -113,20 +113,42 @@ def pull_model_with_progress(model_name: str) -> bool:
         return False
 
 def unload_models() -> bool:
-    """Unloads all configured models from local VRAM and system memory immediately."""
+    """Unloads all configured and currently loaded models from local Ollama VRAM/RAM."""
     config = Config()
-    # Extract models from configuration file
-    models = [
+    host = config.ollama_host.rstrip('/')
+    
+    # Start with configured models as fallbacks
+    models_to_unload = set([
         config.ollama_embedding_model,
         config.ollama_llm_model
-    ]
+    ])
     
-    url = "http://localhost:11434/api/generate"
+    # Try to query currently loaded models via /api/ps
+    ps_url = f"{host}/api/ps"
+    try:
+        req = urllib.request.Request(ps_url)
+        with urllib.request.urlopen(req, timeout=3) as response:
+            ps_data = json.loads(response.read().decode("utf-8"))
+            for m in ps_data.get("models", []):
+                model_name = m.get("name") or m.get("model")
+                if model_name:
+                    models_to_unload.add(model_name)
+    except Exception:
+        # If Ollama is not running or /api/ps is not supported, ignore and use the fallbacks
+        pass
+        
+    url = f"{host}/api/generate"
     success = True
     
     console.print("[bold blue]Unloading models from Ollama VRAM/RAM...[/bold blue]\n")
     
-    for model in models:
+    # If no models found/configured to unload, return early
+    models_list = [m for m in models_to_unload if m]
+    if not models_list:
+        console.print("No models found to unload.\n")
+        return True
+        
+    for model in models_list:
         try:
             # Passing keep_alive: 0 unloads the model from VRAM/RAM instantly
             post_data = json.dumps({"model": model, "keep_alive": 0}).encode("utf-8")
@@ -134,13 +156,14 @@ def unload_models() -> bool:
             with urllib.request.urlopen(req, timeout=3) as _:
                 console.print(f"  - Unloaded model '[cyan]{model}[/cyan]' from VRAM/RAM. [bold green]✓[/bold green]")
         except Exception as e:
-            # Some model names might not be actively loaded, ignore failure and try to warn
-            sys.stderr.write(f"  - Failed to unload model '{model}' (might not be loaded): {e}\n")
+            # Some model names might not be actively loaded or server could be down
+            sys.stderr.write(f"  - Failed to unload model '{model}': {e}\n")
             success = False
             
     if success:
-        console.print("\n[bold green]✓ All configured models unloaded successfully. VRAM & RAM freed![/bold green]")
+        console.print("\n[bold green]✓ All running models unloaded successfully. VRAM & RAM freed![/bold green]")
     return success
+
 
 def run_setup() -> bool:
     """Main setup workflow to verify Ollama status and pull necessary models."""

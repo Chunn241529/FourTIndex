@@ -2,7 +2,7 @@ from setuptools import setup, find_packages, find_namespace_packages
 
 setup(
     name="fourtindex",
-    version="0.1.0",
+    version="0.1.5",
     description="Local Codebase Indexer & MCP Assistant",
     author="trung",
     py_modules=["main"],

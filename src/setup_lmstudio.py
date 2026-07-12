@@ -17,6 +17,8 @@ console = Console()
 # Mapping from local model name -> Hugging Face repo ID for auto-pull
 HF_MODEL_REGISTRY = {
     "monas": "trungvn2401s/monas",
+    "monas-embeddings-text-code": "trungvn2401s/monas-embeddings-text-code",
+    "monas-reranker": "trungvn2401s/monas-reranker",
 }
 
 def pull_from_huggingface(model_name: str) -> bool:
@@ -73,23 +75,31 @@ def verify_and_load_model(client: LMStudioClient, model_name: str, model_type: s
         console.print(f"[bold red]✗ Failed to retrieve models list:[/bold red] {models_res['error']}")
         return False
         
-    # Standard LM Studio v1 response contains "data" array of models
-    models_data = models_res.get("data", [])
+    # Support both native LM Studio 'models' and OpenAI-style 'data' response
+    models_data = models_res.get("models", []) or models_res.get("data", [])
     
-    # Check if the model is already loaded (it would be in the list of active models)
-    is_available = False
+    is_downloaded = False
+    is_loaded = False
     for m in models_data:
-        if m.get("id") == model_name:
-            is_available = True
+        model_id = m.get("key") or m.get("id")
+        if model_id == model_name:
+            is_downloaded = True
+            if "loaded_instances" in m:
+                if m.get("loaded_instances"):
+                    is_loaded = True
+            else:
+                is_loaded = True
             break
             
-    if is_available:
+    if is_loaded:
         console.print(f"[bold green]✓ Model '{model_name}' is available and loaded in LM Studio![/bold green]")
         return True
         
-    # If not loaded, attempt to pull from HF and then load
-    console.print(f"Model '{model_name}' is not currently active. Attempting to pull and load it...")
-    pull_from_huggingface(model_name)
+    if not is_downloaded:
+        console.print(f"Model '{model_name}' is not downloaded. Attempting to pull it from Hugging Face...")
+        pull_from_huggingface(model_name)
+    else:
+        console.print(f"Model '{model_name}' is downloaded but not active in memory. Loading it now...")
 
     with Progress(
         SpinnerColumn(),
@@ -119,7 +129,7 @@ def run_setup() -> bool:
         
     llm_model = config.lmstudio_llm_model
     emb_model = config.lmstudio_embedding_model
-    rerank_model = config.data.get("rerank", {}).get("model", "qwen3-reranker-0.6b")
+    rerank_model = config.data.get("rerank", {}).get("model", "monas-reranker")
     
     success_llm = verify_and_load_model(client, llm_model, "LLM")
     success_emb = verify_and_load_model(client, emb_model, "Embedding")

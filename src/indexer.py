@@ -67,6 +67,18 @@ class Indexer:
         project_root = os.path.abspath(project_root)
         matched_files = []
         ignore_lines = list(self.config.exclude_globs)
+        default_ignores = [
+            "package-lock.json",
+            "yarn.lock",
+            "pnpm-lock.yaml",
+            "bun.lockb",
+            "*.min.js",
+            "*.min.css",
+            "*.map"
+        ]
+        for item in default_ignores:
+            if item not in ignore_lines:
+                ignore_lines.append(item)
         if self.config.respect_gitignore:
             for ignore_name in (".gitignore", ".fourtindexignore"):
                 ignore_path = os.path.join(project_root, ignore_name)
