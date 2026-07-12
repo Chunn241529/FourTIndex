@@ -9,6 +9,7 @@ from src.config import Config
 from src.database import Database
 from src.embedder import Embedder
 from src.indexer import Indexer
+from src.project_identity import ProjectResolver
 from tests.test_indexing_service import FakeProvider
 
 
@@ -59,6 +60,14 @@ def setup_test_mcp_context(tmp_path, monkeypatch):
     monkeypatch.setattr(mcp_server, "db", test_db)
     monkeypatch.setattr(mcp_server, "embedder", test_embedder)
     monkeypatch.setattr(mcp_server, "indexer", test_indexer)
+    monkeypatch.setattr(
+        mcp_server,
+        "project_resolver",
+        ProjectResolver(
+            str(tmp_path / "project_registry.json"),
+            str(tmp_path / "state" / "index_manifest.json"),
+        ),
+    )
     
     # Initialize error log for each test
     monkeypatch.setattr(mcp_server, "_recent_errors", [])

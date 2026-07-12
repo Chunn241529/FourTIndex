@@ -122,6 +122,21 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
+### Project-safe agent bootstrap
+
+Agents should resolve the project from their own workspace before searching:
+
+1. Call `resolve_project(workspace_path=<agent cwd>, output_json=true)`.
+2. Reuse the returned `project_name`, `project_root`, and `project_id` for the task.
+3. Pass `project_name` explicitly to project-scoped tools.
+4. Use `get_agent_context(workspace_path)` when delegating to another agent.
+
+Resolution fails closed with `project_not_found`, `ambiguous_project`, or
+`project_path_mismatch`; FourTIndex does not silently select a fallback project.
+`list_projects()` includes canonical roots, stable IDs, and index status. JSON tool
+results are compact by default, while `index_project(..., verbose=true)` includes
+diagnostic details. Model cleanup remains explicit through `clean_mem()`.
+
 ---
 
 <h2 align="center">💖 Support the Project</h2>

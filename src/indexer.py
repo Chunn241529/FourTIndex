@@ -93,6 +93,7 @@ class Indexer:
         exclude_dirs = [os.path.normpath(os.path.join(project_root, d)) for d in self.config.exclude_dirs]
         exclude_names = set(self.config.exclude_dirs)
 
+        instruction_files = self._instruction_files(project_root)
         for root, dirs, files in os.walk(project_root):
             # Prune directory search path in-place to ignore excluded folders
             dirs[:] = [
@@ -119,7 +120,31 @@ class Indexer:
                     ):
                         matched_files.append(full_path)
                     
-        return matched_files
+        matched = {os.path.normcase(os.path.abspath(path)): path for path in matched_files}
+        for path in instruction_files:
+            matched.setdefault(os.path.normcase(os.path.abspath(path)), path)
+        return sorted(matched.values())
+
+    def _instruction_files(self, project_root: str) -> list[str]:
+        """Returns small agent instruction files even when hidden paths are ignored."""
+        candidates = [
+            os.path.join(project_root, "AGENTS.md"),
+            os.path.join(project_root, ".agents", "AGENTS.md"),
+        ]
+        agents_root = os.path.join(project_root, ".agents")
+        if os.path.isdir(agents_root):
+            for root, _, files in os.walk(agents_root):
+                candidates.extend(
+                    os.path.join(root, name)
+                    for name in files
+                    if name.lower() == "skill.md"
+                )
+        return [
+            path
+            for path in candidates
+            if os.path.isfile(path)
+            and os.path.getsize(path) <= self.config.max_file_size_bytes
+        ]
 
     def parse_with_tree_sitter(self, content: str, file_path: str, relative_path: str, lang_name: str) -> list[dict]:
         """Parses a file using tree-sitter to extract class/container outlines and functions/methods."""

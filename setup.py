@@ -2,13 +2,13 @@ from setuptools import setup, find_packages, find_namespace_packages
 
 setup(
     name="fourtindex",
-    version="0.1.5",
+    version="0.1.7",
     description="Local Codebase Indexer & MCP Assistant",
     author="trung",
     py_modules=["main"],
     packages=find_namespace_packages(include=["src", "src.*"]),
     package_data={
-        "src": ["config.yaml", "dashboard/index.html"],
+        "src": ["config.yaml", "dashboard/index.html", "templates/SKILL.md"],
     },
     include_package_data=True,
     install_requires=[

@@ -39,8 +39,64 @@ class LMStudioClient:
         """Lists all downloaded and loaded models via GET /api/v1/models."""
         return self._request("/api/v1/models", method="GET")
 
+    def _ensure_only_model_loaded(self, model: str, load_if_missing: bool = True) -> None:
+        """Ensures that ONLY the specified model is loaded in memory.
+        Unloads any other models that are currently loaded.
+        If the target model is not loaded and load_if_missing is True, loads it.
+        """
+        try:
+            loaded = self.list_models()
+            models_data = loaded.get("models", []) or loaded.get("data", [])
+            
+            target_is_loaded = False
+            other_models_to_unload = []
+            
+            for m in models_data:
+                model_key = m.get("key") or m.get("id")
+                instances = m.get("loaded_instances", [])
+                
+                is_currently_loaded = False
+                inst_ids = []
+                if instances:
+                    is_currently_loaded = True
+                    for inst in instances:
+                        inst_id = inst.get("id") or inst.get("instance_identifier")
+                        if inst_id:
+                            inst_ids.append(inst_id)
+                else:
+                    inst_id = m.get("instance_identifier") or m.get("instance_id")
+                    if inst_id:
+                        is_currently_loaded = True
+                        inst_ids.append(inst_id)
+                
+                if is_currently_loaded:
+                    if model_key == model:
+                        target_is_loaded = True
+                    else:
+                        other_models_to_unload.append((model_key, inst_ids))
+            
+            # Unload other models
+            for model_key, inst_ids in other_models_to_unload:
+                if inst_ids:
+                    for inst_id in inst_ids:
+                        self.unload_model(model_key, instance_id=inst_id)
+                else:
+                    self.unload_model(model_key)
+            
+            # If the target model is not loaded and load_if_missing is True, load it
+            if not target_is_loaded and load_if_missing:
+                payload = {"model": model}
+                self._request("/api/v1/models/load", method="POST", data=payload)
+                
+        except Exception as e:
+            import logging
+            logging.getLogger("fourTindex.lmstudio_client").warning(
+                f"Failed to ensure only model '{model}' is loaded: {e}"
+            )
+
     def load_model(self, model: str, context_length: Optional[int] = None, extra_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Loads a model into memory via POST /api/v1/models/load."""
+        self._ensure_only_model_loaded(model, load_if_missing=False)
         payload = {"model": model}
         if context_length is not None:
             payload["context_length"] = context_length
@@ -111,6 +167,7 @@ class LMStudioClient:
 
     def chat(self, model: str, message: str, context_length: Optional[int] = None) -> Dict[str, Any]:
         """Performs a stateful native chat completion request via POST /api/v1/chat."""
+        self._ensure_only_model_loaded(model, load_if_missing=True)
         payload = {
             "model": model,
             "input": message
@@ -121,6 +178,7 @@ class LMStudioClient:
 
     def chat_completions(self, model: str, messages: List[Dict[str, str]], stream: bool = False, temperature: float = 0.7, max_tokens: Optional[int] = None) -> Dict[str, Any]:
         """Performs OpenAI-compatible chat completion via POST /v1/chat/completions."""
+        self._ensure_only_model_loaded(model, load_if_missing=True)
         payload = {
             "model": model,
             "messages": messages,
@@ -133,6 +191,7 @@ class LMStudioClient:
 
     def embeddings(self, model: str, text_or_texts: Any) -> Dict[str, Any]:
         """Performs OpenAI-compatible embedding generation via POST /v1/embeddings."""
+        self._ensure_only_model_loaded(model, load_if_missing=True)
         payload = {
             "model": model,
             "input": text_or_texts

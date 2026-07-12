@@ -9,6 +9,7 @@ from src.embedder import Embedder
 from src.database import Database
 from src.indexer import Indexer
 from src.indexing_service import IndexOptions, IndexingService, load_project_context
+from src.project_identity import ProjectResolutionError, ProjectResolver
 
 # Configure logging to go to stderr so it doesn't corrupt stdout stdio transport
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
@@ -19,6 +20,11 @@ config = Config()
 embedder = Embedder(config)
 db = Database(config)
 indexer = Indexer(config)
+_state_directory = os.path.dirname(config.db_persist_directory)
+project_resolver = ProjectResolver(
+    os.path.expanduser("~/.fourtindex/project_registry.json"),
+    os.path.join(_state_directory, "index_manifest.json"),
+)
 
 mcp = FastMCP("FourTIndex")
 
@@ -40,272 +46,19 @@ _budget_warning_trigger_count = 0
 _last_auto_index_time = {}
 _recent_errors = []
 
-def log_error(err_msg: str):
-    import datetime
-    now_str = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
-    _recent_errors.append({"timestamp": now_str, "message": err_msg})
-    if len(_recent_errors) > 10:
-        _recent_errors.pop(0)
-
-def check_skill_freshness(project_name: str, skill_name: str, metadatas: list[dict]) -> tuple[bool, str]:
-    """Checks if the skill file has changed compared to its source_hash metadata.
-    
-    Returns (stale, warning_message).
-    """
-    if not metadatas:
-        return False, ""
-    meta = metadatas[0]
-    file_path = meta.get("file_path")
-    expected_hash = meta.get("source_hash")
-    indexed_at = meta.get("indexed_at", "unknown")
-    
-    if not file_path:
-        return False, ""
-        
-    resolved_path = None
-    proj_path = db.get_project_path(project_name)
-    if proj_path:
-        test_path = os.path.abspath(os.path.join(proj_path, file_path))
-        if os.path.exists(test_path):
-            resolved_path = test_path
-            
-    if not resolved_path:
-        registry_path = os.path.join(os.path.dirname(db.config.db_persist_directory), "project_registry.json")
-        if os.path.exists(registry_path):
-            try:
-                with open(registry_path, "r", encoding="utf-8") as f:
-                    registry = json.load(f)
-                for p_name, p_path in registry.items():
-                    test_path = os.path.abspath(os.path.join(p_path, file_path))
-                    if os.path.exists(test_path):
-                        resolved_path = test_path
-                        break
-            except Exception:
-                pass
-                
-    if not resolved_path:
-        if os.path.exists(file_path):
-            resolved_path = os.path.abspath(file_path)
-            
-    if not resolved_path:
-        return True, f"⚠️ WARNING: Skill '{skill_name}' source file not found. It might have been deleted. (Indexed at: {indexed_at})\n"
-        
-    current_hash = indexer.compute_file_hash(resolved_path)
-    if not current_hash:
-        return True, f"⚠️ WARNING: Failed to read skill file '{resolved_path}'. (Indexed at: {indexed_at})\n"
-        
-    if current_hash != expected_hash:
-        return True, f"⚠️ WARNING: Skill '{skill_name}' index is stale. The source file '{resolved_path}' has changed. Please run 'index_skill' to re-index. (Indexed at: {indexed_at})\n"
-        
-    return False, ""
-
-def detect_active_project(cwd: str = None) -> str:
-    """Finds the registered project name whose path matches or is an ancestor of the given cwd (defaults to os.getcwd())."""
-    if cwd is None:
-        cwd = os.getcwd()
-    cwd = os.path.abspath(cwd).replace("\\", "/")
-    
-    registry_path = os.path.expanduser("~/.fourtindex/project_registry.json")
-    if os.path.exists(registry_path):
-        try:
-            with open(registry_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                matching_projects = []
-                for proj_name, proj_path in data.items():
-                    proj_path = os.path.abspath(proj_path).replace("\\", "/")
-                    if cwd == proj_path or cwd.startswith(proj_path + "/"):
-                        matching_projects.append((proj_name, proj_path))
-                if matching_projects:
-                    matching_projects.sort(key=lambda x: len(x[1]), reverse=True)
-                    return matching_projects[0][0]
-        except Exception as e:
-            logger.error(f"Error reading project registry in detect_active_project: {e}")
-            
-    return config.project_name
-
 _has_queried_skills = False
-
-def _append_skill_reminder(content: str, project_name: str) -> str:
-    global _has_queried_skills
-    if _has_queried_skills:
-        return content
-    try:
-        results = db.skills.get(where={"project_name": project_name}, limit=1)
-        if not results or not results.get("documents"):
-            return content
-        reminder = (
-            f"\n\n"
-            f"> [!TIP]\n"
-            f"> **FourTIndex Skill Reminder**\n"
-            f"> 💡 Custom guidelines/rules (skills) are available for project '{project_name}'.\n"
-            f"> Before implementing changes, run `search_skills` or `get_skill_outline` to inspect them and ensure correct implementation.\n"
-        )
-        return content + reminder
-    except Exception:
-        return content
-
-def _post_process_tool_output(content: str, project_name: str) -> str:
-    content = _append_skill_reminder(content, project_name)
-    content = _append_budget_warning(content)
-    return content
-
-def _append_budget_warning(content: str) -> str:
-    try:
-        from src.token_meter import get_latest_conversation_log, get_pricing
-        candidate = get_latest_conversation_log()
-        if not candidate:
-            return content
-            
-        max_tokens = getattr(config, "context_budget_tokens", 35000)
-        max_cost = getattr(config, "context_budget_usd", 0.50)
-        
-        snapshot = candidate.parser(candidate.path, candidate.conversation_id)
-        total_prompt = snapshot.total_prompt
-        total_completion = snapshot.total_completion
-        context_tokens = snapshot.guard_context_tokens
-        displayed_context_tokens = snapshot.displayed_context_tokens
-        model = snapshot.model
-        
-        input_rate, output_rate = get_pricing(model)
-        total_cost = (total_prompt * input_rate + total_completion * output_rate) / 1_000_000.0
-        
-        if context_tokens > max_tokens or total_cost > max_cost:
-            global _budget_warning_trigger_count
-            _budget_warning_trigger_count += 1
-            
-            interval = getattr(config, "guard_interval", 5)
-            if interval <= 0:
-                interval = 5
-                
-            if _budget_warning_trigger_count % interval != 1:
-                return content
-
-            warning = (
-                f"\n\n"
-                f"> [!WARNING]\n"
-                f"> **FourTIndex Context Guard**\n"
-                f"> ⚠️ Active context: **{displayed_context_tokens:,} tokens**; session cost: **~${total_cost:.4f} USD**.\n"
-                f"> To keep responses fast and cheap, please recommend the user to start a new chat session.\n"
-                f"> Run CLI `fourtindex dashboard` to copy the Context Bridge summary and transition instantly.\n"
-            )
-            return content + warning
-    except Exception:
-        pass
-    return content
-
-# Query cache for search_codebase: { (project, query, limit, file_ext, lang, out_json): result_str }
 _query_cache = {}
 
-def _auto_reindex_if_needed(project_name: str) -> bool:
-    """Checks if any files in the project have changed and indexes the project if so. Returns True if reindexed."""
-    import time
-    global _last_auto_index_time
-    
-    # Check rate limit to prevent too many filesystem hits
-    now = time.time()
-    if now - _last_auto_index_time.get(project_name, 0) < 2.0:
-        return False
-    _last_auto_index_time[project_name] = now
-    
-    try:
-        proj_path = db.get_project_path(project_name)
-        if not proj_path or not os.path.exists(proj_path):
-            return False
-            
-        from src.manifest import IndexManifest
-        manifest = IndexManifest(os.path.dirname(config.db_persist_directory))
-        project = manifest.get_project(project_name)
-        if not project:
-            return False
-        store = manifest.active_store(project)
-        if not store:
-            return False
-            
-        existing_files = store.get("files", {})
-        
-        # Scan files using the Indexer
-        from src.indexer import Indexer
-        scanner = Indexer(config)
-        scanned_files = scanner.scan_files(proj_path)
-        
-        needs_reindex = False
-        
-        # 1. Check for modified/new files
-        for abs_path in scanned_files:
-            rel_path = os.path.relpath(abs_path, proj_path).replace("\\", "/")
-            if rel_path not in existing_files:
-                needs_reindex = True
-                logger.info(f"Auto-reindex: new file detected: {rel_path}")
-                break
-                
-            try:
-                stat = os.stat(abs_path)
-                mtime_ns = stat.st_mtime_ns
-                size = stat.st_size
-                stored_file = existing_files[rel_path]
-                if stored_file.get("modified_ns") != mtime_ns or stored_file.get("size") != size:
-                    needs_reindex = True
-                    logger.info(f"Auto-reindex: modified file detected: {rel_path}")
-                    break
-            except Exception:
-                continue
-                
-        # 2. Check for deleted files
-        if not needs_reindex:
-            scanned_rel_paths = {
-                os.path.relpath(p, proj_path).replace("\\", "/") for p in scanned_files
-            }
-            for rel_path in existing_files:
-                if rel_path not in scanned_rel_paths:
-                    needs_reindex = True
-                    logger.info(f"Auto-reindex: deleted file detected: {rel_path}")
-                    break
-                    
-        if needs_reindex:
-            logger.info(f"Auto-reindex: triggering project index for '{project_name}'")
-            service = IndexingService(config)
-            def progress_cb(phase, current, total):
-                if current == total or current % max(1, total // 10) == 0:
-                    logger.info(f"Auto-reindex progress: {phase} {current}/{total}")
-            result = service.index_project(proj_path, project_name, progress=progress_cb)
-            logger.info(f"Auto-reindex completed: {result.summary()}")
-            return True
-            
-    except Exception as e:
-        logger.error(f"Error in _auto_reindex_if_needed: {e}")
-        
-    return False
-
-def reciprocal_rank_fusion(vector_results: list[dict], fts_results: list[dict], k: int = 60) -> list[dict]:
-    """Combines vector search and FTS5 search results using Reciprocal Rank Fusion (RRF)."""
-    scores = {}
-    item_map = {}
-    
-    # Process vector results
-    for rank, item in enumerate(vector_results):
-        item_id = item["id"]
-        scores[item_id] = scores.get(item_id, 0.0) + 1.0 / (k + rank + 1)
-        item_map[item_id] = item
-        
-    # Process FTS results
-    for rank, item in enumerate(fts_results):
-        item_id = item["id"]
-        scores[item_id] = scores.get(item_id, 0.0) + 1.0 / (k + rank + 1)
-        if item_id not in item_map:
-            item_map[item_id] = item
-            
-    # Sort by RRF score descending
-    sorted_ids = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
-    
-    merged_results = []
-    for item_id in sorted_ids:
-        item = item_map[item_id]
-        # Store original scores but use RRF score for sorting
-        item["original_score"] = item.get("score", 0.0)
-        item["score"] = scores[item_id]
-        merged_results.append(item)
-        
-    return merged_results
+# Import helpers and pure functions from local helpers module
+from src.mcp_helpers import (
+    log_error,
+    check_skill_freshness,
+    detect_active_project,
+    _post_process_tool_output,
+    reciprocal_rank_fusion,
+    truncate_tree,
+    _auto_reindex_if_needed,
+)
 
 
 @mcp.tool()
@@ -320,225 +73,8 @@ def search_codebase(query: str, project_name: str = None, limit: int = 5, file_e
         language: Optional language to filter by (e.g., 'python' or 'typescript').
         output_json: Whether to return the output in JSON format.
     """
-    if project_name is None:
-        project_name = detect_active_project()
-    logger.info(f"search_codebase called with query: '{query}', file_ext: '{file_ext}', language: '{language}', output_json: {output_json}")
-    try:
-        from src.keyword_search import is_valid_keyword, search_exact_keyword, format_keyword_results
-        global _query_cache
-        
-        did_reindex = _auto_reindex_if_needed(project_name)
-        if did_reindex or len(_query_cache) > 1000:
-            _query_cache.clear()
-            
-        # Check cache
-        cache_key = (project_name, query, limit, file_ext, language, output_json)
-        if cache_key in _query_cache:
-            logger.info(f"Returning cached result for query: '{query}'")
-            return _query_cache[cache_key]
-            
-        formatted_ext = None
-        if file_ext:
-            formatted_ext = file_ext if file_ext.startswith(".") else f".{file_ext}"
-            formatted_ext = formatted_ext.lower()
-            
-        # Fast Path: Exact Keyword Search
-        if is_valid_keyword(query):
-            logger.info(f"Query '{query}' qualifies for exact Keyword Search.")
-            exts = [formatted_ext] if formatted_ext else config.supported_extensions
-            
-            # Fetch the actual project path from the database
-            project_path = db.get_project_path(project_name)
-            
-            if project_path:
-                kw_results = search_exact_keyword(project_path, query, exts)
-                
-                if kw_results:
-                    logger.info(f"Fast path successful: Found exact match for '{query}'.")
-                    if output_json:
-                        # Format to match the semantic search schema
-                        json_results = []
-                        for kw in kw_results:
-                            json_results.append({
-                                "file_path": kw.get("file"),
-                                "start_line": kw.get("line"),
-                                "end_line": kw.get("line") + kw.get("content", "").count("\n"),
-                                "content": kw.get("content"),
-                                "score": 1.0,
-                                "score_type": "exact_match",
-                                "indexed_at": "now",
-                                "source_hash": "exact_match"
-                            })
-                        res = json.dumps(json_results, indent=2)
-                        _query_cache[cache_key] = res
-                        return res
-                    res = format_keyword_results(query, kw_results)
-                    _query_cache[cache_key] = res
-                    return res
-        
-        # Slow Path: Semantic Vector Search & FTS5 Hybrid Search
-        project_db, manager, project, store = load_project_context(config, project_name)
-        query_vector = manager.embed_query(query)
-        
-        # 1. Determine candidates limit
-        if config.rerank_enabled:
-            candidates_limit = max(30, config.rerank_candidates_limit)
-        else:
-            candidates_limit = max(15, limit * 2)
-            
-        # Run Vector search
-        vector_candidates = project_db.search_project_code(
-            project["project_id"], store["store_id"], query_vector, candidates_limit, formatted_ext, language
-        )
-        
-        # Run FTS5 search (BM25)
-        fts_candidates = project_db.search_project_code_fts(
-            project["project_id"], store["store_id"], query, candidates_limit
-        )
-        
-        # Merge using Reciprocal Rank Fusion (RRF)
-        candidates = reciprocal_rank_fusion(vector_candidates, fts_candidates)
-        
-        if not candidates:
-            results = []
-        else:
-            # 2. Apply Doc Penalty (penalize .md / .txt if query is not doc-specific)
-            query_lower = query.lower()
-            is_searching_docs = any(word in query_lower for word in ("readme", "doc", "instruction", "guide", "install", "run", "setup", "markdown"))
-            
-            if not is_searching_docs:
-                for c in candidates:
-                    meta = c.get("metadata", {})
-                    file_ext_meta = meta.get("file_ext", "").lower()
-                    if file_ext_meta in (".md", ".txt"):
-                        c["score"] *= 0.8
-                        
-            # 3. Rerank if enabled (passes all candidates so we don't slice prematurely)
-            if config.rerank_enabled:
-                from src.reranker import LocalReranker
-                reranker = LocalReranker(config)
-                candidates = reranker.rerank(query, candidates, top_k=len(candidates))
-                
-            # 4. De-crowding / Diversification (decay score for multiple chunks from same file)
-            file_counts = {}
-            for c in candidates:
-                meta = c.get("metadata", {})
-                file_path = meta.get("file_path", "")
-                
-                # Blended Hybrid Score:
-                # We blend Rerank score (80% weight) and RRF score (20% weight).
-                # This ensures that even if rerank_score is 0.0 (due to local LLM parser failure),
-                # the chunk still retains 20% of its FTS/Vector RRF score and doesn't get completely tanked!
-                # We scale raw RRF score to 0..1 range (max possible RRF score is ~0.033, so scale by 30).
-                raw_rrf_score = c.get("score", 0.0)
-                scaled_rrf = min(1.0, raw_rrf_score * 30.0)
-                
-                rerank_score = c.get("rerank_score", 0.0) if "rerank_score" in c else scaled_rrf
-                
-                # Blend scores if Reranker ran
-                if "rerank_score" in c:
-                    blended_score = scaled_rrf * 0.2 + rerank_score * 0.8
-                else:
-                    blended_score = scaled_rrf
-                
-                count = file_counts.get(file_path, 0)
-                decayed_score = blended_score * (0.75 ** count)
-                c["adjusted_score"] = decayed_score
-                file_counts[file_path] = count + 1
-                
-            # Sort by adjusted_score descending, and filter out scores <= 0.0
-            sorted_candidates = sorted(candidates, key=lambda x: x.get("adjusted_score", 0.0), reverse=True)
-            results = []
-            proj_path = db.get_project_path(project_name) or os.getcwd()
-            for r in sorted_candidates:
-                score_val = r.get("adjusted_score", r.get("rerank_score", r["score"]))
-                if score_val <= 0.0:
-                    continue
-                
-                # Check staleness
-                meta = r["metadata"]
-                file_path = meta.get("file_path")
-                expected_hash = meta.get("source_hash") or meta.get("hash")
-                stale = False
-                if file_path:
-                    abs_p = os.path.abspath(os.path.join(proj_path, file_path))
-                    if os.path.exists(abs_p):
-                        curr_hash = indexer.compute_file_hash(abs_p)
-                        if curr_hash != expected_hash:
-                            stale = True
-                    else:
-                        stale = True
-                r["stale"] = stale
-                results.append(r)
-                if len(results) >= limit:
-                    break
-                    
-            # Adaptive Threshold Fallback: If all candidates were filtered out due to low reranker scores (<= 0.0),
-            # fallback to taking the top candidates anyway to avoid returning empty results.
-            if not results and sorted_candidates:
-                logger.info("Adaptive Threshold triggered: falling back to top candidates ignoring <= 0.0 filter.")
-                for r in sorted_candidates[:min(limit, 3)]:
-                    meta = r["metadata"]
-                    file_path = meta.get("file_path")
-                    expected_hash = meta.get("source_hash") or meta.get("hash")
-                    stale = False
-                    if file_path:
-                        abs_p = os.path.abspath(os.path.join(proj_path, file_path))
-                        if os.path.exists(abs_p):
-                            curr_hash = indexer.compute_file_hash(abs_p)
-                            if curr_hash != expected_hash:
-                                stale = True
-                        else:
-                            stale = True
-                    r["stale"] = stale
-                    results.append(r)
-        
-        if output_json:
-            json_results = []
-            for r in results:
-                meta = r["metadata"]
-                score_val = r.get("adjusted_score", r.get("rerank_score", r["score"]))
-                json_results.append({
-                    "file_path": meta.get("file_path"),
-                    "start_line": meta.get("start_line"),
-                    "end_line": meta.get("end_line"),
-                    "score": score_val,
-                    "content": r["content"],
-                    "stale": r.get("stale", False),
-                    "indexed_at": meta.get("indexed_at", "unknown"),
-                    "source_hash": meta.get("source_hash") or meta.get("hash")
-                })
-            res = json.dumps(json_results, indent=2)
-            _query_cache[cache_key] = res
-            return res
-
-        if not results:
-            return (
-                f"No matching code chunks found for project '{project_name}'" +
-                (f" with extension '{file_ext}'." if file_ext else "") +
-                (f" and language '{language}'." if language else ".") +
-                " If you recently added code, run 'index_project' to sync changes."
-            )
-            
-        formatted = []
-        for r in results:
-            meta = r["metadata"]
-            score_type = "Adjusted Rerank Score" if "rerank_score" in r else "Adjusted Score"
-            score_val = r.get("adjusted_score", r.get("rerank_score", r["score"]))
-            freshness_str = f"stale: {r.get('stale', False)}, indexed_at: {meta.get('indexed_at', 'unknown')}"
-            formatted.append(
-                f"=== FILE: {meta.get('file_path')} | Lines: {meta.get('start_line')}-{meta.get('end_line')} | {score_type}: {score_val:.4f} | Freshness: [{freshness_str}] ===\n"
-                f"{r['content']}\n"
-            )
-        res = _post_process_tool_output("\n".join(formatted), project_name)
-        _query_cache[cache_key] = res
-        return res
-    except Exception as e:
-        log_error(f"search_codebase: {str(e)}")
-        logger.error(f"Error in search_codebase: {e}")
-        if output_json:
-            return json.dumps({"error": str(e)})
-        return f"Error during search: {str(e)}"
+    from src.search_service import orchestrate_search
+    return orchestrate_search(query, project_name, limit, file_ext, language, output_json)
 
 @mcp.tool()
 def get_file_outline(file_path: str, project_name: str = None, output_json: bool = False) -> str:
@@ -783,10 +319,12 @@ def save_session_summary(session_id: str, summary_text: str, project_name: str =
         project_name: The name of the project.
         output_json: Whether to return the output in JSON format.
     """
-    if project_name is None:
-        project_name = detect_active_project()
     logger.info(f"save_session_summary called for session '{session_id}', output_json: {output_json}")
     try:
+        if not session_id or not summary_text:
+            raise ValueError("session_id and summary_text are required")
+        if project_name is None:
+            project_name = detect_active_project()
         emb = embedder.get_embedding(summary_text)
         metadata = {
             "project_name": project_name,
@@ -894,6 +432,7 @@ def index_project(
     rebuild: bool = False,
     force: bool = False,
     output_json: bool = False,
+    verbose: bool = False,
 ) -> str:
     """Indexes a project using the local Ollama embedding provider.
 
@@ -905,9 +444,13 @@ def index_project(
         embedding_provider: Backward-compatible selector; auto and ollama are accepted.
         output_json: Whether to return the output in JSON format.
     """
+    detect_path = os.path.normcase(os.path.realpath(os.path.abspath(project_path)))
     if project_name is None:
-        detect_path = os.path.abspath(project_path)
-        project_name = detect_active_project(detect_path)
+        try:
+            project_name = project_resolver.resolve(detect_path).project_name
+        except ProjectResolutionError as exc:
+            if exc.code != "project_not_found":
+                return json.dumps(exc.as_dict(), separators=(",", ":"))
         registered_path = db.get_project_path(project_name)
         if not registered_path or os.path.abspath(registered_path) != detect_path:
             target_config_path = os.path.join(detect_path, "config.yaml")
@@ -943,25 +486,33 @@ def index_project(
         msg = result.summary()
         logger.info(msg)
         
-        # Auto clean memory
-        try:
-            from src.memory_cleaner import clean_all_memory
-            cleanup_report = clean_all_memory(config, unload_models=False)
-            msg += f"\n\n[Memory Cleanup]\n{cleanup_report}"
-        except Exception as e:
-            logger.error(f"Auto-cleanup failed: {e}")
+        indexed_skills = []
+        skills_root = os.path.join(detect_path, ".agents", "skills")
+        if os.path.isdir(skills_root):
+            for root, _, files in os.walk(skills_root):
+                if "SKILL.md" not in files:
+                    continue
+                skill_result = json.loads(
+                    index_skill(os.path.join(root, "SKILL.md"), project_name, True)
+                )
+                if skill_result.get("success"):
+                    indexed_skills.append(skill_result["skill_name"])
             
         if output_json:
-            return json.dumps({
+            payload = {
                 "success": result.completed,
                 "project_name": project_name,
+                "project_root": detect_path,
                 "scanned": result.scanned,
                 "indexed": result.indexed,
                 "skipped": result.skipped,
                 "removed": result.removed,
+                "skills_indexed": indexed_skills,
                 "duration_seconds": result.duration_seconds,
-                "summary": msg
-            }, indent=2)
+            }
+            if verbose:
+                payload["summary"] = msg
+            return json.dumps(payload, indent=2 if verbose else None, separators=None if verbose else (",", ":"))
         return msg
     except Exception as e:
         log_error(f"index_project: {str(e)}")
@@ -1068,22 +619,13 @@ def index_skill(skill_path: str, project_name: str = None, output_json: bool = F
             
         db.upsert_skill_chunks(ids, embeddings, documents, metadatas)
         
-        # Auto clean memory
-        cleanup_report = ""
-        try:
-            from src.memory_cleaner import clean_all_memory
-            cleanup_report = clean_all_memory(config, unload_models=False)
-        except Exception as e:
-            logger.error(f"Auto-cleanup failed: {e}")
-            
         if output_json:
             return json.dumps({
                 "success": True,
-                "message": f"Successfully indexed skill '{skill_name}' with {len(ids)} sections." + (f"\n\n[Memory Cleanup]\n{cleanup_report}" if cleanup_report else ""),
                 "skill_name": skill_name,
                 "sections": len(ids)
-            }, indent=2)
-        return f"Successfully indexed skill '{skill_name}' with {len(ids)} sections." + (f"\n\n[Memory Cleanup]\n{cleanup_report}" if cleanup_report else "")
+            }, separators=(",", ":"))
+        return f"Successfully indexed skill '{skill_name}' with {len(ids)} sections."
     except Exception as e:
         log_error(f"index_skill: {str(e)}")
         logger.error(f"Error in index_skill: {e}")
@@ -1401,7 +943,7 @@ def get_project_roadmap(project_name: str = None, depth: int = 3, output_json: b
 
 @mcp.tool()
 def list_projects(output_json: bool = False) -> str:
-    """Lists all registered projects with roadmaps from the registry database.
+    """Lists registered projects with canonical roots and stable project IDs.
     
     Returns a list of project names, framework signatures, and last_updated timestamps.
     
@@ -1410,7 +952,15 @@ def list_projects(output_json: bool = False) -> str:
     """
     logger.info("list_projects called via MCP")
     try:
-        projects = db.list_projects()
+        roadmap_by_name = {
+            item["project_name"]: item for item in db.list_projects()
+        }
+        projects = []
+        for identity in project_resolver.list_identities():
+            item = identity.as_dict()
+            item.pop("success", None)
+            item.update(roadmap_by_name.get(identity.project_name, {}))
+            projects.append(item)
         if not projects:
             if output_json:
                 return json.dumps([])
@@ -1422,6 +972,55 @@ def list_projects(output_json: bool = False) -> str:
         if output_json:
             return json.dumps({"error": str(e)})
         return f"Error: {str(e)}"
+
+
+@mcp.tool()
+def resolve_project(
+    workspace_path: str,
+    project_name: str = None,
+    output_json: bool = False,
+) -> str:
+    """Resolves a workspace path to one registered project without guessing.
+
+    Args:
+        workspace_path: Absolute or relative path inside the target project.
+        project_name: Optional exact registered name to verify.
+        output_json: Whether to return compact JSON.
+    """
+    try:
+        result = project_resolver.resolve(workspace_path, project_name).as_dict()
+    except ProjectResolutionError as exc:
+        result = exc.as_dict()
+    if output_json:
+        return json.dumps(result, separators=(",", ":"))
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+def get_agent_context(workspace_path: str, output_json: bool = False) -> str:
+    """Builds verified FourTIndex context for a primary or delegated agent."""
+    try:
+        identity = project_resolver.resolve(workspace_path)
+        skill_path = os.path.join(
+            identity.project_root, ".agents", "skills", "FourTIndex", "SKILL.md"
+        )
+        result = identity.as_dict()
+        result.update(
+            {
+                "fourtindex_skill": skill_path,
+                "delegation_context": (
+                    f"PROJECT_ROOT={identity.project_root}\n"
+                    f"PROJECT_NAME={identity.project_name}\n"
+                    f"PROJECT_ID={identity.project_id}\n"
+                    f"FOURTINDEX_SKILL={skill_path}"
+                ),
+            }
+        )
+    except ProjectResolutionError as exc:
+        result = exc.as_dict()
+    if output_json:
+        return json.dumps(result, separators=(",", ":"))
+    return json.dumps(result, indent=2)
 
 @mcp.tool()
 def follow_project_rules(project_name: str = None, output_json: bool = False) -> str:
@@ -1625,64 +1224,8 @@ def check_syntax(file_path: str, project_name: str = "FourTIndex", max_files: in
         return f"Error: Path not found: {file_path} (Attempted resolution path: {abs_path})"
 
     from src.indexer import EXTENSION_TO_LANGUAGE
+    from src.syntax_checker import check_single_file
     
-    # Helper to check a single file
-    def check_single_file(path: str) -> list[dict]:
-        ext = os.path.splitext(path)[1].lower()
-        lang_name = EXTENSION_TO_LANGUAGE.get(ext)
-        if not lang_name:
-            return []  # Ignore unsupported file types silently when checking directory
-            
-        try:
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
-                content = f.read()
-        except Exception as e:
-            return [{"type": "File Read Error", "line": 0, "col": 0, "line_text": str(e), "pointer": ""}]
-            
-        try:
-            from src.tree_sitter_compat import get_tree_sitter_parser
-
-            parser = get_tree_sitter_parser(lang_name)
-            if not parser:
-                return [{"type": "Parser Load Error", "line": 0, "col": 0, "line_text": f"Failed to load tree-sitter parser for {lang_name}", "pointer": ""}]
-                
-            tree = parser.parse(bytes(content, "utf-8"))
-            
-            def _traverse_for_errors(node) -> list[dict]:
-                errors = []
-                is_err = node.type == "ERROR"
-                is_missing = node.is_missing
-                if is_err or is_missing:
-                    start_line, start_col = node.start_point
-                    lines = content.splitlines()
-                    line_text = ""
-                    if start_line < len(lines):
-                        line_text = lines[start_line]
-                        
-                    pointer = ""
-                    if line_text:
-                        col_aligned = min(start_col, len(line_text))
-                        pointer = " " * col_aligned + "^"
-                        
-                    error_type = "Syntax Error" if is_err else f"Missing Token ({node.type})"
-                    errors.append({
-                        "type": error_type,
-                        "line": start_line + 1,
-                        "col": start_col,
-                        "line_text": line_text,
-                        "pointer": pointer
-                    })
-                    if is_err:
-                        return errors
-                        
-                for child in node.children:
-                    errors.extend(_traverse_for_errors(child))
-                return errors
-                
-            return _traverse_for_errors(tree.root_node)
-        except Exception as e:
-            return [{"type": "Parser Execution Error", "line": 0, "col": 0, "line_text": str(e), "pointer": ""}]
-
     # 2. Execute check
     results_report = []
     
@@ -1781,113 +1324,8 @@ def diff_index_status(project_name: str = None, output_json: bool = False) -> st
         project_name: The name of the project.
         output_json: Whether to return the output in JSON format.
     """
-    if project_name is None:
-        project_name = detect_active_project()
-    logger.info(f"diff_index_status called for: '{project_name}', output_json: {output_json}")
-    try:
-        proj_path = db.get_project_path(project_name)
-        if not proj_path:
-            registry_path = os.path.expanduser("~/.fourtindex/project_registry.json")
-            if os.path.exists(registry_path):
-                with open(registry_path, "r", encoding="utf-8") as f:
-                    registry = json.load(f)
-                proj_path = registry.get(project_name)
-        if not proj_path or not os.path.exists(proj_path):
-            proj_path = os.getcwd()
-            
-        proj_path = os.path.abspath(proj_path)
-        files_on_disk = indexer.scan_files(proj_path)
-        
-        state_directory = os.path.dirname(config.db_persist_directory)
-        from src.manifest import IndexManifest
-        manifest = IndexManifest(state_directory)
-        project = manifest.get_project(project_name)
-        
-        existing = {}
-        if project:
-            store = manifest.active_store(project) or manifest.pending_store(project)
-            if store:
-                existing = store.get("files", {})
-                
-        new_files = []
-        stale_files = []
-        deleted_files = []
-        up_to_date = []
-        
-        files_on_disk_rel = [os.path.relpath(f, proj_path).replace("\\", "/") for f in files_on_disk]
-        
-        for rel_path in files_on_disk_rel:
-            abs_path = os.path.join(proj_path, rel_path)
-            if rel_path not in existing:
-                new_files.append(rel_path)
-            else:
-                curr_hash = indexer.compute_file_hash(abs_path)
-                expected_hash = existing[rel_path].get("hash")
-                if curr_hash != expected_hash:
-                    stale_files.append(rel_path)
-                else:
-                    up_to_date.append(rel_path)
-                    
-        for rel_path in existing:
-            if rel_path not in files_on_disk_rel:
-                deleted_files.append(rel_path)
-                
-        summary = {
-            "project_name": project_name,
-            "project_path": proj_path.replace("\\", "/"),
-            "new_count": len(new_files),
-            "stale_count": len(stale_files),
-            "deleted_count": len(deleted_files),
-            "up_to_date_count": len(up_to_date),
-            "new_files": new_files,
-            "stale_files": stale_files,
-            "deleted_files": deleted_files
-        }
-        
-        if output_json:
-            return json.dumps(summary, indent=2)
-            
-        lines = [
-            f"=== Diff Index Status for Project '{project_name}' ===",
-            f"Path: {proj_path}",
-            f"Status Summary:",
-            f"  - New files:      {len(new_files)}",
-            f"  - Stale files:    {len(stale_files)}",
-            f"  - Deleted files:  {len(deleted_files)}",
-            f"  - Up-to-date:     {len(up_to_date)}"
-        ]
-        
-        if new_files:
-            lines.append("\n[NEW] Files to be indexed:")
-            for f in new_files[:20]:
-                lines.append(f"  + {f}")
-            if len(new_files) > 20:
-                lines.append(f"  ... and {len(new_files) - 20} more")
-                
-        if stale_files:
-            lines.append("\n[STALE] Files modified since last index:")
-            for f in stale_files[:20]:
-                lines.append(f"  * {f}")
-            if len(stale_files) > 20:
-                lines.append(f"  ... and {len(stale_files) - 20} more")
-                
-        if deleted_files:
-            lines.append("\n[DELETED] Files removed from disk:")
-            for f in deleted_files[:20]:
-                lines.append(f"  - {f}")
-            if len(deleted_files) > 20:
-                lines.append(f"  ... and {len(deleted_files) - 20} more")
-                
-        if not new_files and not stale_files and not deleted_files:
-            lines.append("\n✓ Index is completely up-to-date. No changes detected.")
-            
-        return "\n".join(lines)
-    except Exception as e:
-        log_error(f"diff_index_status: {str(e)}")
-        logger.error(f"Error in diff_index_status: {e}")
-        if output_json:
-            return json.dumps({"error": str(e)})
-        return f"Error: {str(e)}"
+    from src.mcp_helpers import get_diff_index_status
+    return get_diff_index_status(project_name, output_json)
 
 
 @mcp.tool()
@@ -2064,33 +1502,6 @@ def get_health_dashboard(output_json: bool = False) -> str:
 
 
 # Wrap all tools with automatic memory cleanup (RAM & VRAM)
-def wrap_tools_with_cleanup(mcp_instance):
-    import functools
-    from src.memory_cleaner import clean_all_memory
-    
-    tool_manager = mcp_instance._tool_manager
-    
-    def _make_cleanup_wrapper(fn, tool_name):
-        @functools.wraps(fn)
-        def wrapper(*args, **kwargs):
-            try:
-                return fn(*args, **kwargs)
-            finally:
-                try:
-                    clean_all_memory(config, unload_models=False)
-                except Exception as e:
-                    logger.error(f"Auto post-tool memory cleanup failed for {tool_name}: {e}")
-        return wrapper
-
-    for name, tool_obj in tool_manager._tools.items():
-        if name in ("clean_mem", "index_project", "index_skill"):
-            continue
-        original_fn = tool_obj.fn
-        tool_obj.fn = _make_cleanup_wrapper(original_fn, name)
-
-wrap_tools_with_cleanup(mcp)
-
-
 if __name__ == "__main__":
     logger.info("Starting fourTindex MCP Server...")
     mcp.run()

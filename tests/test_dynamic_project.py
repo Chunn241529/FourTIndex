@@ -1,29 +1,41 @@
-import os
 import json
-from unittest.mock import patch, mock_open
-from src.mcp_server import detect_active_project
 
-def test_detect_active_project():
-    registry_data = {
-        "FourTIndex": "D:/project/FourTIndex",
-        "dynamic_monas": "d:/project/dynamic_monas"
-    }
-    
-    # 1. Test exact match
-    with patch("os.path.exists", return_value=True), \
-         patch("builtins.open", mock_open(read_data=json.dumps(registry_data))), \
-         patch("os.getcwd", return_value="d:/project/dynamic_monas"):
-        assert detect_active_project() == "dynamic_monas"
-        
-    # 2. Test ancestor directory match
-    with patch("os.path.exists", return_value=True), \
-         patch("builtins.open", mock_open(read_data=json.dumps(registry_data))), \
-         patch("os.getcwd", return_value="d:/project/dynamic_monas/src/components"):
-        assert detect_active_project() == "dynamic_monas"
+import pytest
 
-    # 3. Test fallback to default project when no match
-    with patch("os.path.exists", return_value=True), \
-         patch("builtins.open", mock_open(read_data=json.dumps(registry_data))), \
-         patch("os.getcwd", return_value="d:/project/unregistered"):
-        # Should fallback to the project_name from config
-        assert detect_active_project() == "FourTIndex"
+from src import mcp_server
+from src.project_identity import ProjectResolutionError, ProjectResolver
+
+
+def test_detect_active_project_resolves_exact_and_descendant_paths(tmp_path, monkeypatch):
+    project = tmp_path / "dynamic_monas"
+    descendant = project / "src" / "components"
+    descendant.mkdir(parents=True)
+    registry = tmp_path / "project_registry.json"
+    manifest = tmp_path / "index_manifest.json"
+    registry.write_text(json.dumps({"dynamic_monas": str(project)}), encoding="utf-8")
+    manifest.write_text(json.dumps({"projects": {}}), encoding="utf-8")
+    monkeypatch.setattr(
+        mcp_server,
+        "project_resolver",
+        ProjectResolver(str(registry), str(manifest)),
+    )
+
+    assert mcp_server.detect_active_project(str(project)) == "dynamic_monas"
+    assert mcp_server.detect_active_project(str(descendant)) == "dynamic_monas"
+
+
+def test_detect_active_project_fails_closed_when_unregistered(tmp_path, monkeypatch):
+    registry = tmp_path / "project_registry.json"
+    manifest = tmp_path / "index_manifest.json"
+    registry.write_text("{}", encoding="utf-8")
+    manifest.write_text(json.dumps({"projects": {}}), encoding="utf-8")
+    monkeypatch.setattr(
+        mcp_server,
+        "project_resolver",
+        ProjectResolver(str(registry), str(manifest)),
+    )
+
+    with pytest.raises(ProjectResolutionError) as error:
+        mcp_server.detect_active_project(str(tmp_path / "unregistered"))
+
+    assert error.value.code == "project_not_found"
